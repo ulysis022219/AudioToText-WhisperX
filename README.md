@@ -93,19 +93,16 @@ os.environ["HF_TOKEN"] = userdata.get('HF_TOKEN')
 
 Just add the `HF_TOKEN` secret (with notebook access ON) and it works — nothing else to do.
 
-**`DEEPL_API_KEY`** — Step 5 reads it from an **environment variable**:
+**`DEEPL_API_KEY`** — Step 5 reads it straight from Secrets (falling back to the `DEEPL_API_KEY` environment variable if set):
 
 ```python
 deepl_api_key = os.environ.get("DEEPL_API_KEY", "")
+if not deepl_api_key:
+    from google.colab import userdata
+    deepl_api_key = userdata.get('DEEPL_API_KEY') or ""
 ```
 
-Colab Secrets are **not** injected into `os.environ` automatically. So after adding the `DEEPL_API_KEY` secret, bridge it to the environment once per session — run this in a cell (or add it to the top of Step 5) **before** Step 5:
-
-```python
-from google.colab import userdata
-import os
-os.environ["DEEPL_API_KEY"] = userdata.get('DEEPL_API_KEY')
-```
+Just add the `DEEPL_API_KEY` secret (with notebook access ON) — no extra step needed.
 
 **OpenAI API key** — optional. It is **not** a secret; it's a form field. To use OpenAI's hosted `whisper-1` instead of local WhisperX, paste your key into the `api_key` field in **Step 3**. Leave it blank to run WhisperX locally on the GPU (the default, and free).
 
@@ -141,7 +138,7 @@ Results are written to the `audio_transcription/` folder. Change `output_formats
 - **CUDA out of memory** — lower `batch_size`, or use a smaller `use_model`. The notebook frees VRAM between files, but very long audio + large batch can still OOM.
 - **Runtime restarts after Step 1** — expected, once. Continue to Step 2.
 - **`HF_TOKEN` errors** — confirm the secret exists and **Notebook access** is ON.
-- **DeepL does nothing / auth error** — you skipped the env-var bridge above, or the source and target language are the same.
+- **DeepL does nothing / auth error** — check the `DEEPL_API_KEY` secret exists with Notebook access ON, or the source and target language are the same.
 - **CPU warning** — enable GPU: **Runtime → Change runtime type → GPU**.
 - **Japanese alignment one-time conversion** — the first Japanese run converts the alignment model to safetensors (CVE-2025-32434 fix). This is cached; later runs skip it.
 
