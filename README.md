@@ -1,5 +1,7 @@
 # 🗣️ AudioToText — WhisperX (Colab)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ulysis022219/AudioToText-WhisperX/blob/main/AudioToText_WhisperX.ipynb)
+
 Transcribe or translate audio/video in Google Colab using [WhisperX](https://github.com/m-bain/whisperX) — faster Whisper with word-level timestamps. Tuned for long-form and Japanese/CJK audio, with subtitle-friendly output (`srt`, `vtt`, `txt`, `tsv`, `json`) and optional DeepL translation.
 
 Based on [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText), reworked for WhisperX with CJK-safe segment splitting, hallucination/repetition cleanup, VRAM cleanup between files, and a Google Drive workflow.
