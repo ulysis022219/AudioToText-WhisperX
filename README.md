@@ -40,7 +40,7 @@ Do not paste credentials into cells or save a notebook containing a secret. Rota
 
 ## Privacy and storage
 
-- **Local WhisperX:** audio is processed inside the Colab runtime. Model files are downloaded from Hugging Face.
+- **Local WhisperX:** audio is processed inside the Colab runtime. ASR and alignment model files are downloaded from Hugging Face; WhisperX's bundled VAD checkpoint is verified locally before loading.
 - **OpenAI backend:** selected audio/chunks are uploaded to OpenAI for transcription.
 - **DeepL:** transcript text, but not audio, is sent to DeepL when Step 5 is run.
 - **Google Drive:** raw Step 3 checkpoints and generated outputs are stored under `MyDrive/audio_transcription` by default.
@@ -63,7 +63,7 @@ Review the applicable provider policies before processing sensitive material.
 | `fail_if_alignment_fails` | Stop instead of producing explicitly marked degraded output. |
 | `max_chars_per_line` | CJK character limit; Latin-language segments are not destructively rejoined. |
 
-Alignment status, model revision, and any error are preserved in JSON. Torchaudio models are pinned by the exact Torch stack; Hugging Face alignment uses an immutable safetensors allowlist. Languages without a safe artifact degrade explicitly instead of loading legacy pickle weights. Translation-to-English does not run word alignment.
+WhisperX 3.8.6's bundled Pyannote VAD uses a legacy checkpoint, so Step 3 verifies its pinned SHA-256 before loading it in a narrowly scoped exception. Forced weights-only loading remains enabled everywhere else. Alignment status, model revision, and any error are preserved in JSON. Torchaudio models are pinned by the exact Torch stack; Hugging Face alignment uses an immutable safetensors allowlist. Languages without a safe artifact degrade explicitly instead of loading legacy pickle weights. Translation-to-English does not run word alignment.
 
 ## Outputs and recovery
 
@@ -97,6 +97,7 @@ Step 5 sends a list of segment strings through the DeepL API and optionally supp
 - **Environment verification fails:** remove `/tmp/deps_installed_v3` and rerun Step 1.
 - **CUDA out of memory:** lower `batch_size` or use a smaller model.
 - **CPU warning:** enable a GPU runtime; CPU execution is much slower.
+- **VAD security check failed:** rerun Step 1 to reinstall the pinned WhisperX 3.8.6 package; do not bypass the checksum.
 - **Alignment failed:** inspect `alignment_error` in JSON, confirm network/model access, or enable `fail_if_alignment_fails` for strict behavior.
 - **Secret not found:** confirm its exact name and enable Notebook access.
 - **Output already exists:** the notebook adds a suffix unless `overwrite_existing` is enabled.
