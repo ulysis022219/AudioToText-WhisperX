@@ -97,6 +97,24 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertNotIn("<br/>", DEEPL)
         self.assertNotIn("glob.glob", OUTPUT)
 
+    def test_english_translation_quality_controls_exist(self):
+        self.assertIn('quality_mode = "Balanced"', TRANSCRIBE)
+        self.assertIn('"High accuracy"', TRANSCRIBE)
+        self.assertIn('quality["beam_size"]', TRANSCRIBE)
+        self.assertIn('quality["best_of"]', TRANSCRIBE)
+        self.assertIn('"condition_on_previous_text": context_conditioning', TRANSCRIBE)
+        self.assertIn("context_conditioning", TRANSCRIBE)
+        self.assertIn("effective_prompt", TRANSCRIBE)
+        self.assertIn("prompt_names", TRANSCRIBE)
+        self.assertIn("prompt_terms", TRANSCRIBE)
+        self.assertIn("prompt_acronyms", TRANSCRIBE)
+        self.assertIn("subject_area", TRANSCRIBE)
+        self.assertIn("collect_quality_notes", TRANSCRIBE)
+        self.assertIn("quality_notes", TRANSCRIBE)
+        self.assertIn("Review", TRANSCRIBE)
+        self.assertNotIn('"hotwords": prompt or None', TRANSCRIBE)
+        self.assertNotIn('api_options["prompt"] = prompt', TRANSCRIBE)
+
 
 class TranscriptionUtilityTests(unittest.TestCase):
     @classmethod
@@ -104,7 +122,8 @@ class TranscriptionUtilityTests(unittest.TestCase):
         cls.ns = load_functions(
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
-             "split_long_segments", "merge_api_segments", "prepare_api_chunks"},
+             "split_long_segments", "merge_api_segments", "prepare_api_chunks",
+             "collect_quality_notes"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}},
         )
 
@@ -182,6 +201,18 @@ class TranscriptionUtilityTests(unittest.TestCase):
         ]}
         self.assertIs(split([segment], max_chars=3, language_code="en")[0], segment)
         self.assertEqual(segment["text"], "hello world")
+
+    def test_quality_notes_flag_low_confidence_segments(self):
+        collect = self.ns["collect_quality_notes"]
+        notes = collect([
+            {"start": 0, "end": 1, "text": "clean", "avg_logprob": -0.2,
+             "no_speech_prob": 0.1, "compression_ratio": 1.1},
+            {"start": 1, "end": 2, "text": "???", "avg_logprob": -1.8,
+             "no_speech_prob": 0.3, "compression_ratio": 1.0},
+        ])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("confidence", notes[0]["reasons"])
+        self.assertEqual(notes[0]["text"], "???")
 
     def test_api_segments_use_source_offsets_not_prior_text_end(self):
         merge = self.ns["merge_api_segments"]
