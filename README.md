@@ -56,7 +56,10 @@ Review the applicable provider policies before processing sensitive material.
 | `audio_file` | One full input path per line; commas in filenames are supported. |
 | `language` | Force a language or auto-detect it. |
 | `use_model` | Local Whisper model; `large-v3` favors accuracy. |
-| `prompt` | Optional vocabulary/style hint; blank by default to avoid bias. |
+| `prompt` | Optional free-text vocabulary/style hint; blank by default to avoid bias. |
+| `prompt_names` / `prompt_terms` / `prompt_acronyms` / `subject_area` | Structured hints merged into the prompt to favor names, terminology, abbreviations, and the subject domain. |
+| `quality_mode` | `Balanced` (beam 3) or `High accuracy` (beam 5). `High accuracy` is slower. |
+| `context_conditioning` | Feed previous text into each pass for continuity; may repeat on noisy audio, so off by default. |
 | `compute_type` | `float16` for GPU, automatically changed to `int8` on CPU. |
 | `batch_size` | Higher can be faster but requires more VRAM. |
 | `word_timestamps` | Request local WhisperX forced alignment for transcription. |
@@ -64,6 +67,8 @@ Review the applicable provider policies before processing sensitive material.
 | `max_chars_per_line` | CJK character limit; Latin-language segments are not destructively rejoined. |
 
 WhisperX 3.8.6's bundled Pyannote VAD uses a legacy checkpoint, so Step 3 verifies its pinned SHA-256 before loading it in a narrowly scoped exception. Forced weights-only loading remains enabled everywhere else. Alignment status, model revision, and any error are preserved in JSON. Torchaudio models are pinned by the exact Torch stack; Hugging Face alignment uses an immutable safetensors allowlist. Languages without a safe artifact degrade explicitly instead of loading legacy pickle weights. Translation-to-English does not run word alignment.
+
+For English output, keep `language` on the known source language, use `quality_mode="High accuracy"` and `context_conditioning` for continuity, add specialist hints under the terminology fields, and review the per-file low-confidence segment flags. Local WhisperX segments also record `avg_logprob`, `no_speech_prob`, and `compression_ratio` quality signals; flagged segments are collected in the checkpoint as `quality_notes` and summarized at the end of Step 3 so ASR uncertainty is visible before translation.
 
 ## Outputs and recovery
 
