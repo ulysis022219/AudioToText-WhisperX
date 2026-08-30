@@ -31,7 +31,7 @@ Based on [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText), rework
 
 | Step | What it does |
 |------|--------------|
-| **1** | Installs dependencies (`uv`, PyTorch cu124, WhisperX, …). **Runtime auto-restarts** — expected, just continue. |
+| **1** | Installs dependencies (`uv`, PyTorch cu128, WhisperX, …). **Runtime auto-restarts** — expected, just continue. |
 | **2** | Mounts Google Drive. Drop audio/video into `MyDrive/for process`. |
 | **2.5** | *(Optional)* Record from your microphone → `recording.wav`. |
 | **3** | Transcribe / translate. Set `audio_file` to your file path. |
