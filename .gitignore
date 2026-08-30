@@ -1,0 +1,12 @@
+.uv-cache/
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+audio_transcription/
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.webm
+*.flac

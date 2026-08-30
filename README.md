@@ -1,154 +1,119 @@
-# 🗣️ AudioToText — WhisperX (Colab)
+# 🗣️ AudioToText — WhisperX (Google Colab)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ulysis022219/AudioToText-WhisperX/blob/main/AudioToText_WhisperX.ipynb)
+[![Validate notebook](https://github.com/ulysis022219/AudioToText-WhisperX/actions/workflows/validate.yml/badge.svg)](https://github.com/ulysis022219/AudioToText-WhisperX/actions/workflows/validate.yml)
 
-Transcribe or translate audio/video in Google Colab using [WhisperX](https://github.com/m-bain/whisperX) — faster Whisper with word-level timestamps. Tuned for long-form and Japanese/CJK audio, with subtitle-friendly output (`srt`, `vtt`, `txt`, `tsv`, `json`) and optional DeepL translation.
+Transcribe audio/video in Google Colab with [WhisperX](https://github.com/m-bain/whisperX), word-level alignment, CJK-safe subtitle splitting, persistent Google Drive outputs, optional OpenAI transcription, and optional DeepL translation.
 
-Based on [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText), reworked for WhisperX with CJK-safe segment splitting, hallucination/repetition cleanup, VRAM cleanup between files, and a Google Drive workflow.
+## Quick start
 
----
+1. Open the notebook with the badge above.
+2. Choose **Runtime → Change runtime type → T4 GPU**.
+3. Run Step 1. It verifies exact package versions and intentionally restarts once.
+4. Run Step 2 and add files to `/content/drive/MyDrive/for process`.
+5. Run Step 3, then Step 4 to save outputs.
 
-## ✨ Features
+Steps 2.5 (microphone recording) and 5 (DeepL) are optional.
 
-- **WhisperX** transcription with word-level timestamps and forced alignment.
-- **CJK-safe subtitle splitting** — splits by character count and joins without spaces (Japanese/Chinese have no word spaces).
-- **Hallucination cleanup** — collapses repeated words/phrases and no-space CJK repeats (e.g. `ぐりぐりぐり…` → `ぐり`), drops duplicate segments.
-- **Google Drive workflow** — files persist across sessions, no re-uploading.
-- **Optional OpenAI API** path (`whisper-1`) with automatic chunking for files over 25 MB.
-- **Optional DeepL** translation of the finished transcript.
-- **Correct subtitle encoding** — UTF-8 BOM + CRLF so `.srt`/`.vtt` open cleanly everywhere.
+## Workflow
 
----
+| Step | Purpose |
+|---|---|
+| **1** | Install and verify pinned Python 3.13 / PyTorch cu128 dependencies; restart cleanly. |
+| **2** | Mount Drive and create `MyDrive/for process`. |
+| **2.5** | Optionally record audio directly to the Drive input folder. |
+| **3** | Transcribe locally with WhisperX or explicitly upload audio to OpenAI. Checkpoint every completed file. |
+| **4** | Recover checkpoints if needed and save persistent outputs to Drive. |
+| **5** | Optionally send transcript text to DeepL and save translated outputs. |
 
-## 🚀 Quick start
+## Secrets
 
-1. Open `AudioToText_WhisperX.ipynb` in Google Colab.
-2. **Runtime → Change runtime type → GPU** (T4 is fine; CPU works but is very slow).
-3. Add your API keys as Colab Secrets — see [🔑 API keys](#-api-keys-colab-secrets) below.
-4. Run the steps in order.
+Add secrets with the **🔑 Secrets** panel in Colab and enable **Notebook access**.
 
-### Steps
+| Secret | When needed |
+|---|---|
+| `HF_TOKEN` | Optional for public alignment downloads; required only if a safe allowlisted model is gated. |
+| `OPENAI_API_KEY` | Required only for the OpenAI backend. Never entered into a notebook form. |
+| `DEEPL_API_KEY` | Required only when Step 5 is run. |
 
-| Step | What it does |
-|------|--------------|
-| **1** | Installs dependencies (`uv`, PyTorch cu128, WhisperX, …). **Runtime auto-restarts** — expected, just continue. |
-| **2** | Mounts Google Drive. Drop audio/video into `MyDrive/for process`. |
-| **2.5** | *(Optional)* Record from your microphone → `recording.wav`. |
-| **3** | Transcribe / translate. Set `audio_file` to your file path. |
-| **4** | Save results to the `audio_transcription` folder (`srt` by default). |
-| **5** | *(Optional)* Translate the transcript with DeepL. |
+Do not paste credentials into cells or save a notebook containing a secret. Rotate any credential that was exposed.
 
-> Step 1 restarts the runtime once. This is normal — dependencies need a clean process. Continue to Step 2 after it comes back.
+## Privacy and storage
 
----
+- **Local WhisperX:** audio is processed inside the Colab runtime. Model files are downloaded from Hugging Face.
+- **OpenAI backend:** selected audio/chunks are uploaded to OpenAI for transcription.
+- **DeepL:** transcript text, but not audio, is sent to DeepL when Step 5 is run.
+- **Google Drive:** raw Step 3 checkpoints and generated outputs are stored under `MyDrive/audio_transcription` by default.
 
-## 📁 Adding audio (Step 2)
+Review the applicable provider policies before processing sensitive material.
 
-Run the **Mount Google Drive** cell. It mounts your Drive and ensures the folder exists:
+## Step 3 options
 
-```
-/content/drive/MyDrive/for process
-```
+| Option | Meaning |
+|---|---|
+| `transcription_backend` | Local WhisperX (default) or OpenAI API. |
+| `task_label` | Transcribe (default) or translate speech to English. |
+| `audio_file` | One full input path per line; commas in filenames are supported. |
+| `language` | Force a language or auto-detect it. |
+| `use_model` | Local Whisper model; `large-v3` favors accuracy. |
+| `prompt` | Optional vocabulary/style hint; blank by default to avoid bias. |
+| `compute_type` | `float16` for GPU, automatically changed to `int8` on CPU. |
+| `batch_size` | Higher can be faster but requires more VRAM. |
+| `word_timestamps` | Request local WhisperX forced alignment for transcription. |
+| `fail_if_alignment_fails` | Stop instead of producing explicitly marked degraded output. |
+| `max_chars_per_line` | CJK character limit; Latin-language segments are not destructively rejoined. |
 
-Drop your audio/video files into that folder (via the Colab **Files** sidebar on the left, or at [drive.google.com](https://drive.google.com)). The cell lists what's currently there so you can copy a path.
+Alignment status, model revision, and any error are preserved in JSON. Torchaudio models are pinned by the exact Torch stack; Hugging Face alignment uses an immutable safetensors allowlist. Languages without a safe artifact degrade explicitly instead of loading legacy pickle weights. Translation-to-English does not run word alignment.
 
-In **Step 3**, set `audio_file` to the full path, e.g.:
+## Outputs and recovery
 
-```
-/content/drive/MyDrive/for process/yourfile.wav
-```
+Step 3 atomically updates:
 
-Process multiple files by comma-separating paths:
-
-```
-/content/drive/MyDrive/for process/a.wav, /content/drive/MyDrive/for process/b.wav
-```
-
-Almost any audio/video format is [supported](https://gist.github.com/Carleslc/1d6b922c8bf4a7e9627a6970d178b3a6).
-
----
-
-## 🔑 API keys (Colab Secrets)
-
-Keys are read from **Colab Secrets**, not hard-coded in the notebook. Secrets are stored per-account, encrypted, and never saved into the notebook file — safe to share the `.ipynb`.
-
-### Add a secret
-
-1. In Colab, click the **🔑 key icon** in the left sidebar (**Secrets**).
-2. **+ Add new secret**.
-3. Enter the **Name** and **Value**.
-4. Toggle **Notebook access** ON for that secret.
-
-| Secret name | Needed for | Where to get it |
-|-------------|-----------|-----------------|
-| `HF_TOKEN` | **Required** for WhisperX alignment / diarization models | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
-| `DEEPL_API_KEY` | Optional — Step 5 DeepL translation | [deepl.com/pro-api](https://www.deepl.com/pro-api) |
-
-### How the notebook reads them
-
-**`HF_TOKEN`** — Step 3 pulls it from Secrets and exports it to the environment:
-
-```python
-from google.colab import userdata
-os.environ["HF_TOKEN"] = userdata.get('HF_TOKEN')
+```text
+/content/drive/MyDrive/audio_transcription/_last_results.json
 ```
 
-Just add the `HF_TOKEN` secret (with notebook access ON) and it works — nothing else to do.
+Step 4 automatically validates and loads that checkpoint if in-memory `results` were lost. Final files default to the same Drive folder.
 
-**`DEEPL_API_KEY`** — Step 5 reads it straight from Secrets (falling back to the `DEEPL_API_KEY` environment variable if set):
+Supported formats are `txt`, `vtt`, `srt`, `tsv`, and `json`. Step 4:
 
-```python
-deepl_api_key = os.environ.get("DEEPL_API_KEY", "")
-if not deepl_api_key:
-    from google.colab import userdata
-    deepl_api_key = userdata.get('DEEPL_API_KEY') or ""
+- prevents same-basename and previous-run overwrites by default;
+- writes atomically;
+- normalizes only newly generated SRT/VTT files to UTF-8 BOM + CRLF;
+- preserves untouched word-level data in `.raw.json` by default;
+- leaves repetition cleanup off by default because repeated speech may be intentional.
+
+## OpenAI behavior
+
+Audio over the upload safety threshold is converted by FFmpeg to verified sub-24-MiB MP3 chunks in an isolated temporary directory. Chunk timestamps retain their real source offsets, including silence, and temporary files are removed automatically.
+
+## DeepL behavior
+
+Step 5 sends a list of segment strings through the DeepL API and optionally supplies neighboring text as API context. It does not embed transcript text as XML. Each returned batch is cardinality-checked and checkpointed after translation so partial work remains inspectable if a later request fails.
+
+## Troubleshooting
+
+- **Runtime restarts after Step 1:** expected once; reconnect and continue to Step 2.
+- **Environment verification fails:** remove `/tmp/deps_installed_v3` and rerun Step 1.
+- **CUDA out of memory:** lower `batch_size` or use a smaller model.
+- **CPU warning:** enable a GPU runtime; CPU execution is much slower.
+- **Alignment failed:** inspect `alignment_error` in JSON, confirm network/model access, or enable `fail_if_alignment_fails` for strict behavior.
+- **Secret not found:** confirm its exact name and enable Notebook access.
+- **Output already exists:** the notebook adds a suffix unless `overwrite_existing` is enabled.
+
+## Development validation
+
+The notebook remains self-contained so the Colab badge works without cloning the repository. Pure utility behavior is tested directly from the notebook source:
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
-Just add the `DEEPL_API_KEY` secret (with notebook access ON) — no extra step needed.
+CI runs the checks on Python 3.11 and 3.13. Tests cover notebook syntax and metadata, dependency/security invariants, checkpointing, CJK versus Latin splitting, OpenAI source offsets and chunk limits, output validation/collisions, raw JSON preservation, subtitle normalization scope, and DeepL response checks.
 
-**OpenAI API key** — optional. It is **not** a secret; it's a form field. To use OpenAI's hosted `whisper-1` instead of local WhisperX, paste your key into the `api_key` field in **Step 3**. Leave it blank to run WhisperX locally on the GPU (the default, and free).
+## Credits
 
-> **Never paste keys directly into shared notebook cells.** Use Secrets. If a key ever lands in the notebook, rotate it.
-
----
-
-## ⚙️ Key parameters (Step 3)
-
-| Parameter | Meaning |
-|-----------|---------|
-| `task` | `Transcribe` or `Translate to English`. |
-| `audio_file` | Path(s) to input. Comma-separate for batch. |
-| `use_model` | `tiny` … `large-v3`. `large-v3` = best quality. |
-| `language` | Force a language or `Auto-Detect`. |
-| `prompt` | Hotwords / style hint to steer decoding. |
-| `compute_type` | `float16` (GPU) or `int8` (CPU / low VRAM). |
-| `batch_size` | Higher = faster, more VRAM. Lower if you hit OOM. |
-| `word_timestamps` | Enables forced alignment (needed for tight subtitles). |
-| `max_words_per_segment` | **Characters** per subtitle line for CJK (not words). |
-| `api_key` | OpenAI key → use hosted `whisper-1` instead of local. |
-
----
-
-## 💾 Output (Step 4)
-
-Results are written to the `audio_transcription/` folder. Change `output_formats` to any of `txt,vtt,srt,tsv,json` (comma-separated). `.srt`/`.vtt` are post-processed to UTF-8 BOM + CRLF for maximum player compatibility.
-
----
-
-## 🩹 Troubleshooting
-
-- **CUDA out of memory** — lower `batch_size`, or use a smaller `use_model`. The notebook frees VRAM between files, but very long audio + large batch can still OOM.
-- **Runtime restarts after Step 1** — expected, once. Continue to Step 2.
-- **`HF_TOKEN` errors** — confirm the secret exists and **Notebook access** is ON.
-- **DeepL does nothing / auth error** — check the `DEEPL_API_KEY` secret exists with Notebook access ON, or the source and target language are the same.
-- **CPU warning** — enable GPU: **Runtime → Change runtime type → GPU**.
-- **Japanese alignment one-time conversion** — the first Japanese run converts the alignment model to safetensors (CVE-2025-32434 fix). This is cached; later runs skip it.
-
----
-
-## 🙏 Credits
-
-- [WhisperX](https://github.com/m-bain/whisperX) — Max Bain et al.
+- [WhisperX](https://github.com/m-bain/whisperX)
 - [OpenAI Whisper](https://github.com/openai/whisper)
-- [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText) — original notebook this is based on.
+- [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText), the original notebook basis
 - [DeepL API](https://www.deepl.com/pro-api)
