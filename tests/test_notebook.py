@@ -7,6 +7,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_PATH = ROOT / "AudioToText_WhisperX.ipynb"
@@ -72,6 +73,8 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertNotIn("api_key = '' #@param", TRANSCRIBE)
         self.assertNotIn("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", TRANSCRIBE)
         self.assertIn('TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "1"', TRANSCRIBE)
+        self.assertIn("WHISPERX_VAD_SHA256", TRANSCRIBE)
+        self.assertIn("load_whisperx_with_verified_vad", TRANSCRIBE)
         self.assertIn("SAFE_ALIGN_MODELS_HF", TRANSCRIBE)
         self.assertIn("2785e99ab97df77a32b5bd0ece5c9fa188a02f19", TRANSCRIBE)
         self.assertIn('allow_patterns=["*.json", "*.txt", "*.model", "*.safetensors"]', TRANSCRIBE)
@@ -100,10 +103,53 @@ class TranscriptionUtilityTests(unittest.TestCase):
     def setUpClass(cls):
         cls.ns = load_functions(
             TRANSCRIBE,
-            {"atomic_json_dump", "join_word_texts", "split_long_segments",
-             "merge_api_segments", "prepare_api_chunks"},
+            {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
+             "split_long_segments", "merge_api_segments", "prepare_api_chunks"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}},
         )
+
+    def test_vad_checkpoint_hash_must_match(self):
+        verify = self.ns["verify_file_sha256"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vad.bin"
+            path.write_bytes(b"trusted checkpoint")
+            expected = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+            verify(path, expected)
+            with self.assertRaises(RuntimeError):
+                verify(path, "0" * 64)
+
+    def test_verified_vad_load_restores_weights_only_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "whisperx" / "vads"
+            package.mkdir(parents=True)
+            module_file = package / "pyannote.py"
+            module_file.write_text("", encoding="utf-8")
+            vad_file = package.parent / "assets" / "pytorch_model.bin"
+            vad_file.parent.mkdir()
+            vad_file.write_bytes(b"trusted")
+
+            events = []
+            fake_pyannote = types.SimpleNamespace(
+                __file__=str(module_file),
+                Pyannote=lambda *_args, **_kwargs: events.append(
+                    os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD")) or "vad")
+            fake_vads = types.ModuleType("whisperx.vads")
+            fake_vads.pyannote = fake_pyannote
+            fake_whisperx = types.SimpleNamespace(
+                load_model=lambda *_args, **kwargs: kwargs["vad_model"])
+            fake_torch = types.SimpleNamespace(device=lambda value: value)
+            namespace = load_functions(
+                TRANSCRIBE, {"load_whisperx_with_verified_vad"}, {
+                    "WHISPERX_VAD_SHA256": __import__("hashlib").sha256(b"trusted").hexdigest(),
+                    "verify_file_sha256": self.ns["verify_file_sha256"],
+                    "whisperx": fake_whisperx,
+                    "torch": fake_torch,
+                })
+            with mock.patch.dict(sys.modules, {"whisperx.vads": fake_vads}):
+                with mock.patch.dict(os.environ, {"TORCH_FORCE_WEIGHTS_ONLY_LOAD": "1"}):
+                    self.assertEqual(namespace["load_whisperx_with_verified_vad"]("large-v3", "cuda"), "vad")
+                    self.assertEqual(os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"], "1")
+            self.assertEqual(events, [None])
 
     def test_atomic_checkpoint_round_trip_and_replace(self):
         dump = self.ns["atomic_json_dump"]
