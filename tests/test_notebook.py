@@ -387,12 +387,15 @@ class OutputUtilityTests(unittest.TestCase):
         self.assertEqual([segment["text"] for segment in cleaned], ["おいしぃ", "次の台詞"])
         self.assertEqual(segments[1]["text"], "ぃ" * 20)
 
-    def test_single_character_speech_is_not_treated_as_stretching(self):
+    def test_short_drawl_and_replacement_character_are_preserved(self):
         segments = [
-            {"start": 0, "end": 1, "text": "はい"},
-            {"start": 1, "end": 2, "text": "い"},
+            {"start": 0, "end": 1, "text": "ありがとお"},
+            {"start": 1, "end": 2, "text": "お" * 4},
+            {"start": 2, "end": 3, "text": "さ�みつ"},
         ]
-        self.assertEqual(self.ns["clean_segments"](segments), segments)
+        cleaned = self.ns["clean_segments"](segments)
+        self.assertEqual(
+            [segment["text"] for segment in cleaned], ["ありがとお", "お", "さ�みつ"])
 
     def test_raw_json_is_written_before_words_are_removed(self):
         json_branch = OUTPUT.index('if output_format == "json":')
