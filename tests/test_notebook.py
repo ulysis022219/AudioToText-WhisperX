@@ -113,6 +113,17 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn("collect_quality_notes", TRANSCRIBE)
         self.assertIn("quality_notes", TRANSCRIBE)
         self.assertIn("Review", TRANSCRIBE)
+        self.assertNotIn("asmr_terms =", TRANSCRIBE)
+        self.assertNotIn("asmr_acronyms =", TRANSCRIBE)
+        self.assertIn("manual terminology hints only", TRANSCRIBE)
+        self.assertLess(
+            TRANSCRIBE.index('raw_quality_notes = collect_quality_notes(raw_asr_segments)'),
+            TRANSCRIBE.index('result = whisperx.align'))
+        self.assertLess(
+            TRANSCRIBE.index('no_speech_ranges = find_no_speech_ranges(raw_asr_segments)',
+                             TRANSCRIBE.index('raw_quality_notes =')),
+            TRANSCRIBE.index('result = whisperx.align'))
+        self.assertIn('result["quality_notes"] = raw_quality_notes', TRANSCRIBE)
         self.assertNotIn('"hotwords": prompt or None', TRANSCRIBE)
         self.assertNotIn('api_options["prompt"] = prompt', TRANSCRIBE)
 
@@ -124,10 +135,31 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes", "is_cuda_out_of_memory",
-             "transcribe_with_batch_backoff"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None},
+             "collect_quality_notes", "find_no_speech_ranges", "mark_non_speech",
+             "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "NO_SPEECH_MARK_THRESHOLD": 0.6,
+             "free_vram": lambda: None},
         )
+
+    def test_no_speech_ranges_use_shared_threshold(self):
+        ranges = self.ns["find_no_speech_ranges"]([
+            {"start": 0, "end": 1, "no_speech_prob": 0.6},
+            {"start": 1, "end": 2, "no_speech_prob": 0.61},
+            {"start": 2, "end": 3},
+        ])
+        self.assertEqual(ranges, [(1.0, 2.0)])
+
+    def test_aligned_non_speech_uses_raw_asr_ranges(self):
+        segments = [
+            {"start": 0, "end": 2, "text": "real speech", "words": [{"word": "real"}]},
+            {"start": 10, "end": 12, "text": "ASMR,R18,KU100", "words": [{"word": "ASMR"}]},
+            {"start": 12, "end": 14, "text": "boundary speech", "words": [{"word": "boundary"}]},
+        ]
+        marked = self.ns["mark_non_speech"](segments, [(9.5, 12.5)])
+        self.assertEqual(marked[0]["text"], "real speech")
+        self.assertEqual(marked[1]["text"], "[ASMR sounds]")
+        self.assertEqual(marked[1]["words"], [{"word": "ASMR"}])
+        self.assertEqual(marked[2]["text"], "boundary speech")
 
     def test_cuda_oom_retries_with_smaller_batches(self):
         attempted_batches = []
