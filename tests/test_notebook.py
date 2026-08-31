@@ -376,6 +376,24 @@ class OutputUtilityTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"\xef\xbb\xbfone\r\ntwo\r\n")
             self.assertEqual(old.read_bytes(), b"leave\nme\n")
 
+    def test_cross_segment_character_stretch_is_removed_from_clean_outputs(self):
+        segments = [
+            {"start": 0, "end": 1, "text": "おいしぃぃぃぃぃぃ"},
+            {"start": 1, "end": 2, "text": "ぃ" * 20},
+            {"start": 2, "end": 3, "text": "ぃ" * 20 + "�"},
+            {"start": 3, "end": 4, "text": "次の台詞"},
+        ]
+        cleaned = self.ns["clean_segments"](segments)
+        self.assertEqual([segment["text"] for segment in cleaned], ["おいしぃ", "次の台詞"])
+        self.assertEqual(segments[1]["text"], "ぃ" * 20)
+
+    def test_single_character_speech_is_not_treated_as_stretching(self):
+        segments = [
+            {"start": 0, "end": 1, "text": "はい"},
+            {"start": 1, "end": 2, "text": "い"},
+        ]
+        self.assertEqual(self.ns["clean_segments"](segments), segments)
+
     def test_raw_json_is_written_before_words_are_removed(self):
         json_branch = OUTPUT.index('if output_format == "json":')
         remove_words = OUTPUT.index('segment.pop("words", None)')
