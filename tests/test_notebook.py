@@ -436,6 +436,17 @@ class DeepLTests(unittest.TestCase):
         self.assertIn("\\ufffd", DEEPL)
         self.assertNotIn("\ufffd", DEEPL)
 
+    def test_translation_checkpoint_invalidates_on_scheme_change(self):
+        # The DeepL checkpoint is keyed to the input and would otherwise be reused
+        # verbatim even after the translation scheme changes. A version constant must
+        # be folded into the signature and persisted/validated so stale output is not
+        # silently kept on re-run.
+        self.assertIn("TRANSLATION_VERSION", DEEPL)
+        self.assertIn('"version": TRANSLATION_VERSION', DEEPL)
+        self.assertIn('"translation_version": TRANSLATION_VERSION', DEEPL)
+        self.assertIn(
+            'saved_translation.get("translation_version") == TRANSLATION_VERSION', DEEPL)
+
 
 class DeepLTranslationUtilityTests(unittest.TestCase):
     @classmethod
