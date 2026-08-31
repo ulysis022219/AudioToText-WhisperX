@@ -61,7 +61,7 @@ Review the applicable provider policies before processing sensitive material.
 | `quality_mode` | `Balanced` (beam 3) or `High accuracy` (beam 5). `High accuracy` is slower. |
 | `context_conditioning` | Feed previous text into each pass for continuity; may repeat on noisy audio, so off by default. |
 | `compute_type` | `float16` for GPU, automatically changed to `int8` on CPU. |
-| `batch_size` | Higher can be faster but requires more VRAM. |
+| `batch_size` | Local WhisperX batch size. Defaults to `8` for a Colab T4; on CUDA OOM it automatically retries at half the size down to `1`. |
 | `word_timestamps` | Request local WhisperX forced alignment for transcription. |
 | `fail_if_alignment_fails` | Stop instead of producing explicitly marked degraded output. |
 | `max_chars_per_line` | CJK character limit; Latin-language segments are not destructively rejoined. |
@@ -100,7 +100,7 @@ Step 5 sends a list of segment strings through the DeepL API and optionally supp
 
 - **Runtime restarts after Step 1:** expected once; reconnect and continue to Step 2.
 - **Environment verification fails:** remove `/tmp/deps_installed_v3` and rerun Step 1.
-- **CUDA out of memory:** lower `batch_size` or use a smaller model.
+- **CUDA out of memory:** Step 3 automatically halves `batch_size` and retries. If it still fails at `1`, restart the runtime, then use `compute_type="int8"` or a smaller model.
 - **CPU warning:** enable a GPU runtime; CPU execution is much slower.
 - **VAD security check failed:** rerun Step 1 to reinstall the pinned WhisperX 3.8.6 package; do not bypass the checksum.
 - **Alignment failed:** inspect `alignment_error` in JSON, confirm network/model access, or enable `fail_if_alignment_fails` for strict behavior.

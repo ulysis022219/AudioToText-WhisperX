@@ -86,6 +86,7 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn('transcription_backend = "Local WhisperX (Colab GPU)"', TRANSCRIBE)
         self.assertIn('task_label = "Transcribe"', TRANSCRIBE)
         self.assertIn('prompt = ""', TRANSCRIBE)
+        self.assertIn('batch_size = 8', TRANSCRIBE)
         self.assertIn("audio will be uploaded to OpenAI", TRANSCRIBE)
         self.assertIn("Sending transcript text to DeepL", DEEPL)
         self.assertIn("/content/drive/MyDrive/audio_transcription", OUTPUT)
@@ -123,9 +124,47 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"}},
+             "collect_quality_notes", "is_cuda_out_of_memory",
+             "transcribe_with_batch_backoff"},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None},
         )
+
+    def test_cuda_oom_retries_with_smaller_batches(self):
+        attempted_batches = []
+
+        class FakeModel:
+            def transcribe(self, _audio, batch_size, **_kwargs):
+                attempted_batches.append(batch_size)
+                if batch_size > 8:
+                    raise RuntimeError("CUDA failed with error out of memory")
+                return {"segments": [{"text": "ok"}], "language": "ja"}
+
+        free_vram = mock.Mock()
+        with mock.patch("builtins.print"), mock.patch.dict(self.ns, {"free_vram": free_vram}):
+            result, used_batch_size = self.ns["transcribe_with_batch_backoff"](
+                FakeModel(), "audio", 32, language="ja", task="transcribe")
+        self.assertEqual(attempted_batches, [32, 16, 8])
+        self.assertEqual(free_vram.call_count, 2)
+        self.assertEqual(used_batch_size, 8)
+        self.assertEqual(result["language"], "ja")
+
+    def test_non_oom_runtime_error_is_not_retried(self):
+        class FakeModel:
+            def transcribe(self, _audio, batch_size, **_kwargs):
+                raise RuntimeError("invalid device ordinal")
+
+        with self.assertRaisesRegex(RuntimeError, "invalid device ordinal"):
+            self.ns["transcribe_with_batch_backoff"](
+                FakeModel(), "audio", 8, language="ja", task="transcribe")
+
+    def test_cuda_oom_at_batch_one_has_actionable_message(self):
+        class FakeModel:
+            def transcribe(self, _audio, batch_size, **_kwargs):
+                raise RuntimeError("CUDA out of memory")
+
+        with self.assertRaisesRegex(RuntimeError, "smaller model or compute_type='int8'"):
+            self.ns["transcribe_with_batch_backoff"](
+                FakeModel(), "audio", 1, language="ja", task="transcribe")
 
     def test_vad_checkpoint_hash_must_match(self):
         verify = self.ns["verify_file_sha256"]
