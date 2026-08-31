@@ -422,6 +422,71 @@ class DeepLTests(unittest.TestCase):
         self.assertIn('result["source_language"] = result.get("language")', TRANSCRIBE)
         self.assertIn('result["language"] = "en"', TRANSCRIBE)
 
+    def test_translation_uses_sentence_cues_and_glossary(self):
+        self.assertIn("translation_mode", DEEPL)
+        self.assertIn('"Sentence cues"', DEEPL)
+        self.assertIn("use_glossary", DEEPL)
+        self.assertIn("ASMR_GLOSSARY", DEEPL)
+        self.assertIn("glossary=glossary", DEEPL)
+        self.assertIn("create_asmr_glossary", DEEPL)
+        self.assertIn("build_translation_units", DEEPL)
+        self.assertIn("normalize_translation_source", DEEPL)
+        self.assertIn("split_display_lines", DEEPL)
+        # U+FFFD must appear only as a Python escape in source, never as the raw char.
+        self.assertIn("\\ufffd", DEEPL)
+        self.assertNotIn("\ufffd", DEEPL)
+
+
+class DeepLTranslationUtilityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = load_functions(
+            DEEPL,
+            {"normalize_translation_source", "build_translation_units",
+             "split_display_lines"},
+        )
+
+    def test_normalize_translation_source_strips_artifacts(self):
+        norm = self.ns["normalize_translation_source"]
+        # U+FFFD removed, leading/trailing Japanese comma & space trimmed.
+        self.assertEqual(norm("\ufffd、どうだろう?。"), "どうだろう?")
+        self.assertEqual(norm("\ufffd"), "")
+        self.assertEqual(norm("　、なかなかない。　"), "なかなかない")
+
+    def test_build_translation_units_merges_fragments_into_sentences(self):
+        build = self.ns["build_translation_units"]
+        segments = [
+            {"id": 0, "start": 0.0, "end": 1.5, "text": "んーと、じゃあ"},
+            {"id": 1, "start": 1.5, "end": 3.0, "text": "フェラ、フェラして。"},
+            {"id": 2, "start": 3.0, "end": 4.5, "text": "パイパン"},
+            {"id": 3, "start": 4.5, "end": 6.0, "text": "してみよっか。"},
+        ]
+        units = build(segments)
+        self.assertEqual(len(units), 2)
+        self.assertEqual(units[0]["text"], "んーと、じゃあフェラ、フェラして")
+        self.assertEqual((units[0]["start"], units[0]["end"]), (0.0, 3.0))
+        self.assertEqual(units[0]["id"], 0)
+        self.assertEqual(units[1]["text"], "パイパンしてみよっか")
+        self.assertEqual(units[1]["id"], 2)
+
+    def test_build_translation_units_skips_replacement_only_fragments(self):
+        build = self.ns["build_translation_units"]
+        units = build([
+            {"id": 0, "start": 0.0, "end": 0.2, "text": "\ufffd"},
+            {"id": 1, "start": 0.2, "end": 1.0, "text": "うん。"},
+        ])
+        self.assertEqual(len(units), 1)
+        self.assertEqual(units[0]["text"], "うん")
+
+    def test_split_display_lines_breaks_long_sentences(self):
+        split = self.ns["split_display_lines"]
+        long_text = ("This is a fairly long English sentence that should be broken "
+                     "into readable subtitle lines.")
+        lines = split(long_text, max_len=30)
+        for line in lines.split("\n"):
+            self.assertLessEqual(len(line), 30)
+        self.assertEqual(" ".join(lines.split("\n")), long_text)
+
 
 if __name__ == "__main__":
     unittest.main()

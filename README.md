@@ -94,14 +94,17 @@ Audio over the upload safety threshold is converted by FFmpeg to verified sub-24
 
 ## DeepL behavior
 
-Step 5 sends a list of segment strings through the DeepL API and optionally supplies neighboring text as API context. It does not embed transcript text as XML. Each returned batch is cardinality-checked and checkpointed after translation so partial work remains inspectable if a later request fails.
+Step 5 translates whole sentence/clause units rather than the short ~20-char display fragments Step 3 emits, so English stays grammatical and does not fragment into connector noise. Before translation it normalizes each unit's source text (dropping stray `U+FFFD` replacement characters and trimming leading/trailing Japanese punctuation), and optionally applies a client-side ASMR glossary (see below) so known terms render correctly instead of being transliterated or guessed. It does not embed transcript text as XML. Each returned batch is cardinality-checked and checkpointed after translation so partial work remains inspectable if a later request fails.
+
+The optional DeepL glossary maps fixed Japanese ASMR terms (e.g. フェラ → fellatio, 乳首 → nipple) at the translation layer only. It is deterministic and never feeds hotwords back into the Whisper step, so it cannot cause the quiet-audio echo the automatic ASR glossary did. Disable it with `use_glossary = False`.
 
 ## Troubleshooting
 
 - **Runtime restarts after Step 1:** expected once; reconnect and continue to Step 2.
 - **Environment verification fails:** remove `/tmp/deps_installed_v3` and rerun Step 1.
 - **CUDA out of memory:** Step 3 automatically halves `batch_size` and retries. If it still fails at `1`, restart the runtime, then use `compute_type="int8"` or a smaller model.
-- **Hallucinated prompt/glossary text:** clear all optional prompt fields and rerun Step 3. The ASMR profile intentionally does not auto-inject terms because Whisper can echo them over quiet audio.
+- **Hallucinated prompt/glossary text:** clear all optional prompt fields and rerun Step 3. The ASMR profile intentionally does not auto-inject terms because Whisper can echo them over quiet audio. The Step 5 DeepL glossary is separate and safe; it affects translation only.
+- **Mis-heard terms (e.g. Whisper reads フェラ as `フェラー`, which DeepL then renders as "Ferrari"):** add the correct spelling to Step 3 `prompt_terms` (e.g. `フェラ, パイズリ`) as a manual hint. This fixes the ASR source, unlike the Step 5 glossary which only affects translation. Keep hints short and specific so Whisper does not echo them during quiet audio.
 - **CPU warning:** enable a GPU runtime; CPU execution is much slower.
 - **VAD security check failed:** rerun Step 1 to reinstall the pinned WhisperX 3.8.6 package; do not bypass the checksum.
 - **Alignment failed:** inspect `alignment_error` in JSON, confirm network/model access, or enable `fail_if_alignment_fails` for strict behavior.
