@@ -489,6 +489,40 @@ class DeepLTranslationUtilityTests(unittest.TestCase):
         self.assertEqual(len(units), 1)
         self.assertEqual(units[0]["text"], "うん")
 
+    def test_build_translation_units_caps_long_runon_without_punctuation(self):
+        build = self.ns["build_translation_units"]
+        # 10 fragments, 6s each, no sentence-final mark anywhere: the old
+        # max_chars fallback bundled these into ~150s cues.
+        segments = [
+            {"id": i, "start": i * 6.0, "end": i * 6.0 + 6.0, "text": "あああああ"}
+            for i in range(10)
+        ]
+        units = build(segments)
+        self.assertTrue(units)
+        self.assertTrue(all(u["end"] - u["start"] <= 12.0 + 1e-6 for u in units))
+
+    def test_build_translation_units_breaks_on_vad_gap(self):
+        build = self.ns["build_translation_units"]
+        units = build([
+            {"id": 0, "start": 0.0, "end": 2.0, "text": "こんにちは"},
+            {"id": 1, "start": 25.0, "end": 27.0, "text": "おはよう"},
+        ])
+        self.assertEqual(len(units), 2)
+        self.assertEqual(units[0]["id"], 0)
+        self.assertEqual(units[1]["id"], 1)
+        self.assertLessEqual(units[0]["end"], 2.0 + 1e-6)
+
+    def test_build_translation_units_splits_on_midfragment_sentence_end(self):
+        build = self.ns["build_translation_units"]
+        units = build([
+            {"id": 0, "start": 0.0, "end": 4.0, "text": "はい。それでね"},
+            {"id": 1, "start": 4.0, "end": 6.0, "text": "つづき。"},
+        ])
+        self.assertEqual([u["text"] for u in units], ["はい", "それでねつづき"])
+        # First unit ends mid-fragment (interpolated), not at the fragment end.
+        self.assertLess(units[0]["end"], 2.0)
+        self.assertEqual(units[0]["id"], 0)
+
     def test_split_display_lines_breaks_long_sentences(self):
         split = self.ns["split_display_lines"]
         long_text = ("This is a fairly long English sentence that should be broken "
