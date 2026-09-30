@@ -541,7 +541,8 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
              "merge_api_segments", "prepare_api_chunks",
              "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
-             "is_cuda_out_of_memory", "find_stretched_cues"},
+             "is_cuda_out_of_memory", "find_timing_issues",
+             "ease_short_cues", "collapse_repeats"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "zlib": zlib,
              "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
              "free_vram": lambda: None},
@@ -713,12 +714,29 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         self.assertEqual([note["start"] for note in notes], [0])
         self.assertIn("repetition", notes[0]["reasons"])
 
-    def test_stretched_cues_are_flagged(self):
-        notes = self.ns["find_stretched_cues"]([
+    def test_timing_issues_are_flagged(self):
+        notes = self.ns["find_timing_issues"]([
             {"start": 5.8, "end": 32.5, "text": "こんばんは"},
             {"start": 40, "end": 48, "text": "ちょっと待って、一緒にやろうか。"},
-            {"start": 50, "end": 50.02, "text": "も"}])
-        self.assertEqual([note["start"] for note in notes], [5.8])
+            {"start": 50, "end": 51, "text": "も"},
+            {"start": 52, "end": 52.3, "text": "お姉さんの身体触りたいの?"},
+            {"start": 130, "end": 132, "text": "よろしく"}])
+        self.assertEqual([(note["start"], note["reasons"].split(" (")[1]) for note in notes], [
+            (5.8, "timing may be off)"), (52, "too fast to read)"), (52.3, "missed whispers?)")])
+
+    def test_short_cues_are_held_until_the_next_cue(self):
+        segments = self.ns["ease_short_cues"]([
+            {"start": 0, "end": 0.1, "text": "ちゅぱぁっ"},
+            {"start": 0.5, "end": 0.8, "text": "お姉さんの身体触りたいの?"},
+            {"start": 10, "end": 14, "text": "さっきも触ったじゃない"}])
+        self.assertEqual([segment["end"] for segment in segments], [0.5, 2.125, 14])
+
+    def test_runaway_repeats_are_collapsed(self):
+        segments = self.ns["collapse_repeats"]([
+            {"text": "んじゅ" + "る" * 80 + "っ!"}, {"text": "ごしごしごし…こっちは"},
+            {"text": "ちゅぱ" * 9}])
+        self.assertEqual([segment["text"] for segment in segments],
+                         ["んじゅるるるる…っ!", "ごしごしごし…こっちは", "ちゅぱちゅぱちゅぱちゅぱ…"])
 
     def test_quality_notes_tolerate_missing_signals(self):
         self.assertEqual(self.ns["collect_quality_notes"](
