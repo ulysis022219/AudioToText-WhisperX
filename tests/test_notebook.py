@@ -24,8 +24,9 @@ DEEPL = CELLS["28f7EIP-rez0"]
 def load_functions(source, names, extra_globals=None):
     tree = ast.parse(source)
     selected = [node for node in tree.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name in names]
+                if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names)
+                or (isinstance(node, ast.Assign) and len(node.targets) == 1  # constants
+                    and getattr(node.targets[0], "id", None) in names)]
     namespace = {
         "Path": Path,
         "copy": copy,
@@ -110,9 +111,9 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn('quality_mode = "Balanced"', TRANSCRIBE)
         self.assertIn('"High accuracy"', TRANSCRIBE)
         self.assertIn('quality["beam_size"]', TRANSCRIBE)
-        self.assertIn('quality["best_of"]', TRANSCRIBE)
-        self.assertIn('"condition_on_previous_text": context_conditioning', TRANSCRIBE)
-        self.assertIn("context_conditioning", TRANSCRIBE)
+        # Options the batched WhisperX decoder ignores must not pose as settings.
+        self.assertNotIn("context_conditioning", TRANSCRIBE)
+        self.assertNotIn("best_of", TRANSCRIBE)
         self.assertIn("effective_prompt", TRANSCRIBE)
         self.assertIn("collect_quality_notes", TRANSCRIBE)
         self.assertIn("quality_notes", TRANSCRIBE)
@@ -145,7 +146,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes",
+             "collect_quality_notes", "STOCK_HALLUCINATIONS",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
@@ -410,7 +411,8 @@ class DeepLTests(unittest.TestCase):
         self.assertIn('userdata.get("DEEPL_API_KEY")', DEEPL)
         self.assertNotIn('os.environ.get("DEEPL_API_KEY")', DEEPL)
         self.assertIn("text=texts", DEEPL)
-        self.assertIn('context="\\n".join(texts) if share_context else None', DEEPL)
+        self.assertIn("source_units[max(0, start - 10):start + len(batch)]", DEEPL)
+        self.assertIn("if share_context else None", DEEPL)
         self.assertIn("len(responses) != len(batch)", DEEPL)
         self.assertIn("valid_resume_prefix", DEEPL)
         self.assertIn("source_signature", DEEPL)
@@ -540,9 +542,10 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             TRANSCRIBE,
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
              "merge_api_segments", "prepare_api_chunks",
-             "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
+             "format_timestamp", "collect_quality_notes", "STOCK_HALLUCINATIONS",
+             "transcribe_with_batch_backoff",
              "is_cuda_out_of_memory", "find_timing_issues",
-             "ease_short_cues", "collapse_repeats"},
+             "ease_short_cues", "collapse_repeats", "trim_smeared_words", "widen_crammed_cues"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "zlib": zlib,
              "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
              "free_vram": lambda: None},
@@ -731,12 +734,41 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"start": 10, "end": 14, "text": "さっきも触ったじゃない"}])
         self.assertEqual([segment["end"] for segment in segments], [0.5, 2.125, 14])
 
+    def test_word_stretched_through_silence_is_trimmed(self):
+        # CTC backtracking gives the blank frames after a character to it.
+        segments = self.ns["trim_smeared_words"]([
+            {"start": 543.9, "end": 566.4, "text": "和服です",
+             "words": [{"word": "和", "start": 543.9, "end": 544.1}, {"word": "服", "start": 544.1, "end": 544.3},
+                       {"word": "で", "start": 544.3, "end": 544.5}, {"word": "す", "start": 544.5, "end": 566.4}]},
+            {"start": 0, "end": 1, "text": "untimed", "words": [{"word": "1"}]}])
+        self.assertEqual(segments[0]["words"][-1]["end"], 546.0)
+        self.assertEqual(segments[0]["end"], 546.0)
+        self.assertEqual(segments[1]["end"], 1)
+
+    def test_crammed_cues_start_earlier_into_free_time(self):
+        segments = self.ns["widen_crammed_cues"]([
+            {"start": 543.9, "end": 546.0, "text": "和服です"},
+            {"start": 566.4, "end": 566.9, "text": "ここは?すりすりすり…ここは?"},  # 15 chars in 0.5 s
+            {"start": 567.0, "end": 567.2, "text": "ちゅ"}])
+        self.assertEqual([segment["start"] for segment in segments], [543.9, 565.025, 567.0])
+        overlapping = self.ns["widen_crammed_cues"]([
+            {"start": 0, "end": 2, "text": "あ"}, {"start": 1.9, "end": 2.1, "text": "ここは?すりすり"}])
+        self.assertEqual(overlapping[1]["start"], 1.9)  # never moved later
+
     def test_runaway_repeats_are_collapsed(self):
         segments = self.ns["collapse_repeats"]([
             {"text": "んじゅ" + "る" * 80 + "っ!"}, {"text": "ごしごしごし…こっちは"},
             {"text": "ちゅぱ" * 9}])
         self.assertEqual([segment["text"] for segment in segments],
                          ["んじゅるるるる…っ!", "ごしごしごし…こっちは", "ちゅぱちゅぱちゅぱちゅぱ…"])
+
+    def test_stock_hallucinations_are_flagged(self):
+        notes = self.ns["collect_quality_notes"]([
+            {"start": 0, "end": 2, "text": "ご視聴ありがとうございました"},
+            {"start": 2, "end": 4, "text": "Thank you for watching!"},
+            {"start": 4, "end": 6, "text": "ありがとう"}])
+        self.assertEqual([note["start"] for note in notes], [0, 2])
+        self.assertIn("stock phrase", notes[0]["reasons"])
 
     def test_quality_notes_tolerate_missing_signals(self):
         self.assertEqual(self.ns["collect_quality_notes"](
@@ -859,20 +891,28 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         cls.ns = load_functions(
             DEEPL,
             {"normalize_translation_source", "build_translation_units",
-             "split_display_lines", "valid_resume_prefix", "deepl_source_code"},
+             "split_display_lines", "valid_resume_prefix", "deepl_source_code",
+             "collapse_translation_repeats", "subtitle_segments"},
             {},
         )
 
-    def texts(self, segments):
-        return [unit["text"] for unit in self.ns["build_translation_units"](segments)]
+    def texts(self, segments, **options):
+        return [unit["text"] for unit in self.ns["build_translation_units"](segments, **options)]
 
     def test_latin_ellipsis_decimals_and_closers_do_not_make_junk_units(self):
         self.assertEqual(self.texts([
-            {"id": 0, "start": 0, "end": 5, "text": "Wait... it costs 3.5 dollars?! Really."}]),
-            ["Wait...", "it costs 3.5 dollars?!", "Really."])
+            {"id": 0, "start": 0, "end": 5, "text": "Wait... it costs 3.5 dollars?! Really."}],
+            min_seconds=0), ["Wait...", "it costs 3.5 dollars?!", "Really."])
         self.assertEqual(self.texts([
-            {"id": 0, "start": 0, "end": 2, "text": "「はい。」そう!?うん"}]),
+            {"id": 0, "start": 0, "end": 2, "text": "「はい。」そう!?うん"}], min_seconds=0),
             ["「はい。」", "そう!?", "うん"])
+
+    def test_sentences_shorter_than_min_seconds_join_the_next_one(self):
+        # A crammed 0.7 s fragment used to become four 0.1 s cues.
+        self.assertEqual(self.texts([
+            {"id": 0, "start": 0, "end": 0.7, "text": "ここは?すりすり…ここは?"},
+            {"id": 1, "start": 0.7, "end": 3, "text": "全部敏感なんだね。どう?"}]),
+            ["ここは?すりすり…ここは?全部敏感なんだね", "どう?"])
 
     def test_bad_timestamps_and_empty_input_are_tolerated(self):
         self.assertEqual(self.texts([]), [])
@@ -894,6 +934,28 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertEqual([len(line) for line in lines], [42, 42, 16])
         self.assertEqual(split("x" * 42, max_len=42), "x" * 42)
         self.assertEqual(split("", max_len=42), "")
+
+    def test_translated_walls_of_repeats_are_shortened(self):
+        collapse = self.ns["collapse_translation_repeats"]
+        self.assertEqual(collapse("Mmm, slurp-slurp-slurp-slurp-slurp-slurp"), "Mmm, slurp-slurp-slurp…")
+        self.assertEqual(collapse("Lurururururururururu"), "Lurururur…")
+        self.assertEqual(collapse("あああああああああ好き"), "ああああ…好き")
+        self.assertEqual(collapse("No, no, no, no way"), "No, no, no, no way")
+
+    def test_subtitle_cues_have_two_lines_and_stay_readable(self):
+        cues = self.ns["subtitle_segments"]([
+            {"id": 0, "start": 0, "end": 6, "text": " ".join(f"word{i}" for i in range(25))},
+            {"id": 1, "start": 6, "end": 6.1, "text": "Mwah"},
+            {"id": 2, "start": 6.3, "end": 6.4, "text": "Haa"}])
+        self.assertTrue(all(cue["text"].count("\n") <= 1 for cue in cues))
+        self.assertEqual([cue["start"] for cue in cues[:2]], [0, cues[0]["end"]])
+        self.assertEqual(cues[1]["end"], 6)
+        self.assertEqual([(cue["start"], cue["end"]) for cue in cues[2:]], [(6, 6.3), (6.3, 7.3)])
+        cues = self.ns["subtitle_segments"]([{"id": 0, "start": 0, "end": 4, "text":
+            "What about here? Rub, rub, rub... What about here? Here? Everything's so sensitive."}])
+        self.assertEqual([cue["text"] for cue in cues],
+                         ["What about here? Rub, rub, rub... What\nabout here? Here?",
+                          "Everything's so sensitive."])
 
     def test_resume_prefix_rejects_mismatches(self):
         valid = self.ns["valid_resume_prefix"]

@@ -54,7 +54,6 @@
 | `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
 | `use_model` | `large-v3` | `large-v2` is an alternative that some find steadier on long audio. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/` |
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
-| `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
 | `quiet_speech` | off | More sensitive voice detection and 15-second chunks, for whispering/ASMR |
 | `reduce_repetition` | off | Blocks exact loops (a word hallucinated dozens of times) and shortens any run of 8+ repeats to four (るるるる…). Can also trim genuine repetition |
 | `prompt` | — | Short terminology hints, e.g. names Whisper keeps mishearing |
@@ -63,6 +62,9 @@
 | `word_timestamps` | on | Forced alignment for word-level timing |
 | `fail_if_alignment_fails` | off | Stop instead of saving output marked as degraded |
 | `max_chars_per_line` | `20` | Subtitle line length for Japanese/Chinese |
+
+> [!TIP]
+> **Japanese ASMR / voice drama:** use `anime-whisper` with `quiet_speech` and `reduce_repetition` on, then `cleanup_repetitions` in Step 4. Try `large-v3` on the same settings if a file has long stretches with no text.
 
 > [!TIP]
 > Keep `prompt` short. Whisper can repeat hint text over silence. If you see hallucinated hint text, clear the field and rerun.
@@ -84,8 +86,9 @@
 | `deepl_target_language` | English (American) | Any DeepL target language |
 | `deepl_formality` | default | `formal` / `informal` where the target supports it |
 | `share_context` | on | Sends neighbouring lines as context for better coherence |
+| `deepl_instructions` | subtitle style hint | Free-text style hint (DeepL custom instructions) for EN/DE/ES/FR/IT/JA/KO/ZH targets; skipped automatically if your plan rejects it. Clear it to turn off |
 
-Step 5 rejoins Step 3's short display fragments into whole sentences before translating them, uses DeepL's quality-optimized model where available, and splits the translation back into readable subtitle lines. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
+Step 5 rejoins Step 3's short display fragments into whole sentences before translating them (a sentence shorter than 1.5 s is joined to the next, so crammed moments don't flash by), uses DeepL's quality-optimized model where available, and splits the translation back into subtitles of at most two 42-character lines, keeping sentences together. Brief cues stay on screen for at least 1 s (≈15 chars/s) when the next cue allows it, and walls of repeats (`slurp-slurp-slurp-…`) are shortened. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
 
 ## 🔐 Secrets
 
@@ -115,7 +118,7 @@ Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Nev
 
 Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, stock phrases Whisper invents over silence (`ご視聴ありがとうございました`, `Thanks for watching`), cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Timing is also repaired after alignment: the aligner hands the silence after a word (a breath, a kiss) to that word, so each word is capped at 1.5 s (or 0.5 s per character) and a cue ends when its speech does; text crammed into a sliver right after such a silence is started earlier, at about 8 characters per second; and cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
 
 ## 🩺 Troubleshooting
 
