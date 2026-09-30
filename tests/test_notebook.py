@@ -224,6 +224,8 @@ class TranscriptionUtilityTests(unittest.TestCase):
                     "whisperx": fake_whisperx,
                     "torch": fake_torch,
                     "logging": __import__("logging"),
+                    "contextlib": __import__("contextlib"),
+                    "io": __import__("io"),
                 })
             with mock.patch.dict(sys.modules, {"whisperx.vads": fake_vads}):
                 with mock.patch.dict(os.environ, {"TORCH_FORCE_WEIGHTS_ONLY_LOAD": "1"}):
