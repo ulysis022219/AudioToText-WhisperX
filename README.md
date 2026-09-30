@@ -64,6 +64,9 @@
 | `max_chars_per_line` | `20` | Subtitle line length for Japanese/Chinese |
 
 > [!TIP]
+> **Japanese ASMR / voice drama:** use `anime-whisper` with `quiet_speech` and `reduce_repetition` on, then `cleanup_repetitions` in Step 4. Try `large-v3` on the same settings if a file has long stretches with no text.
+
+> [!TIP]
 > Keep `prompt` short. Whisper can repeat hint text over silence. If you see hallucinated hint text, clear the field and rerun.
 
 ### Step 4 — Save
