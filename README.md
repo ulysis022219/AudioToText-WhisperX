@@ -52,7 +52,7 @@
 | `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
 | `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
 | `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
-| `use_model` | `large-v3` | Smaller models are faster but less accurate. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/` |
+| `use_model` | `large-v3` | `large-v2` is an alternative that some find steadier on long audio. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/` |
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
 | `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
 | `quiet_speech` | off | More sensitive voice detection and 15-second chunks, for whispering/ASMR |
