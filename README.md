@@ -52,7 +52,7 @@
 | `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
 | `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
 | `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
-| `use_model` | `large-v3` | `large-v2` is an alternative that some find steadier on long audio. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/` |
+| `use_model` | `large-v3` | `large-v2` is an alternative that some find steadier on long audio. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/`. Both Kotoba-based models run on 15-second chunks, as Kotoba does |
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
 | `quiet_speech` | off | More sensitive voice detection and 15-second chunks, for whispering/ASMR |
 | `reduce_repetition` | off | Blocks exact loops (a word hallucinated dozens of times) and shortens any run of 8+ repeats to four (るるるる…). Can also trim genuine repetition |
@@ -75,7 +75,7 @@
 |---|---|---|
 | `output_dir` | `MyDrive/audio_transcription` | Where the files are written |
 | `output_formats` | `srt` | Any comma-separated mix of `txt, vtt, srt, tsv, json` |
-| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) |
+| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) to one copy and drops a cue that repeats one of the two before it. Short sounds keep three copies (`ははは`, `ちゅっちゅっちゅっ`) |
 | `save_raw_json` | on | Also writes an uncleaned `.raw.json` with word-level data |
 | `overwrite_existing` | off | When off, a new run gets a `-1`, `-2`, … suffix instead of replacing old files |
 
@@ -118,7 +118,7 @@ Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Nev
 
 Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, stock phrases Whisper invents over silence (`ご視聴ありがとうございました`, `Thanks for watching`), cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Timing is also repaired after alignment: the aligner hands the silence after a word (a breath, a kiss) to that word, so each word is capped at 1.5 s (or 0.5 s per character) and a cue ends when its speech does; text crammed into a sliver right after such a silence is started earlier, at about 8 characters per second; and cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, stock phrases Whisper invents over silence (`ご視聴ありがとうございました`, `Thanks for watching`), cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Voice detection cuts audio exactly where its score crosses a threshold, which can clip soft, whispered starts and endings, so each speech chunk is widened by up to 0.4 s into the silence around it. Timing is also repaired after alignment: the aligner hands the silence after a word (a breath, a kiss) to that word, so each word is capped at 1.5 s (or 0.5 s per character) and a cue ends when its speech does; text crammed into a sliver right after such a silence is started earlier, at about 8 characters per second; and cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
 
 ## 🩺 Troubleshooting
 
