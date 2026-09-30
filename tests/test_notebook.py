@@ -1,5 +1,7 @@
 import ast
+import contextlib
 import copy
+import io
 import json
 import os
 import sys
@@ -449,6 +451,36 @@ class DeepLTests(unittest.TestCase):
         self.assertIn("atomic_deepl_checkpoint", DEEPL)
         self.assertIn('"translation_status": "in_progress"', DEEPL)
         self.assertIn('translated["translation_status"] = "complete"', DEEPL)
+
+    def test_steps_four_and_five_keep_lines_that_translate_alike(self):
+        class Translator:
+            def __init__(self, key):
+                pass
+            def get_target_languages(self):
+                return [types.SimpleNamespace(name="English (American)", code="EN-US")]
+            def get_source_languages(self):
+                return [types.SimpleNamespace(code="JA")]
+            def translate_text(self, text, **options):
+                return [types.SimpleNamespace(text="I love you.") for _ in text]
+
+        utils = types.SimpleNamespace(get_writer=FakeWhisperWriter, WriteTXT=object,
+                                      TO_LANGUAGE_CODE={"japanese": "ja"})
+        deepl = types.SimpleNamespace(Translator=Translator, DeepLException=RuntimeError,
+                                      QuotaExceededException=KeyError, AuthorizationException=KeyError)
+        colab = types.SimpleNamespace(userdata=types.SimpleNamespace(get=lambda name: "key"))
+        # Two different Japanese lines that DeepL translates alike must both stay on screen.
+        namespace = {"task": "transcribe", "results": {"/in/a.wav": {"language": "ja", "text": "", "segments": [
+            {"id": 0, "start": 1.0, "end": 2.0, "text": "好きだよ"},
+            {"id": 1, "start": 5.0, "end": 6.0, "text": "好き"}]}}}
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(sys.modules, {
+                "whisperx": types.ModuleType("whisperx"), "whisperx.utils": utils, "deepl": deepl,
+                "google": types.ModuleType("google"), "google.colab": colab}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            for cell in (OUTPUT, DEEPL):
+                exec(cell.replace('"/content/drive/MyDrive/audio_transcription"', repr(directory))
+                     .replace("cleanup_repetitions = False", "cleanup_repetitions = True"), namespace)
+            srt = Path(directory, "a-en-us.srt").read_text(encoding="utf-8-sig")
+        self.assertEqual(srt.count("I love you."), 2)
 
     def test_translation_outputs_are_marked_english(self):
         self.assertIn('result["source_language"] = result.get("language")', TRANSCRIBE)
