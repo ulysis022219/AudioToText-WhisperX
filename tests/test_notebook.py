@@ -129,6 +129,7 @@ class NotebookStructureTests(unittest.TestCase):
         # Kotoba-based models learned from short clips; their authors run them on 15 s chunks.
         self.assertIn('"chunk_size": 15 if quiet_speech or kotoba_based else 30', TRANSCRIBE)
         self.assertIn('segment["end"] = min(segment["end"], round(audio_seconds, 3))', TRANSCRIBE)
+        self.assertIn('if re.search(r"\\w", segment.get("text", ""))]', TRANSCRIBE)  # drop "…"-only segments
         self.assertIn('"anime-whisper"]', TRANSCRIBE)
         self.assertLess(TRANSCRIBE.index('use_model = ensure_anime_whisper()'),
                         TRANSCRIBE.index("model_name = use_model"))
