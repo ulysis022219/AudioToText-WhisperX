@@ -569,8 +569,46 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         result = split([segment], max_chars=2, language_code="ja")
         self.assertEqual("".join(item["text"] for item in result), "3時に会う!")
         self.assertEqual(result[0]["start"], 0.5)
-        self.assertEqual(result[-1]["text"], "う!")  # trailing untimed word merged back
+        self.assertEqual(result[-1]["text"], "会う!")  # trailing untimed word merged back
         self.assertEqual(result[-1]["end"], 2.5)
+
+    def _chars(self, text, gaps=None):
+        words, clock = [], 0.0
+        for index, char in enumerate(text):
+            clock += (gaps or {}).get(index, 0.0)
+            words.append({"word": char, "start": clock, "end": clock + 0.15})
+            clock += 0.15
+        return {"start": 0, "end": clock, "text": text, "words": words}
+
+    def test_cjk_split_never_starts_a_line_with_small_kana_or_punctuation(self):
+        split = self.ns["split_long_segments"]
+        for text in ("お題はいらないわよちゃんと飲め干さないから探していこうかな",
+                     "それってすごいことじゃないですかほんとにそう思う?",
+                     "あああああああああああああああああああちゃんと"):
+            lines = [item["text"] for item in split([self._chars(text)], 20, "ja")]
+            self.assertEqual("".join(lines), text)
+            self.assertTrue(all(line[0] not in "ゃゅょっー?、。" for line in lines), lines)
+
+    def test_cjk_split_prefers_punctuation_then_word_starts(self):
+        split = self.ns["split_long_segments"]
+        lines = [item["text"] for item in split(
+            [self._chars("ちょっと待って、一緒にやろうか。それでいいならお願いします。")], 20, "ja")]
+        self.assertEqual(lines, ["ちょっと待って、一緒にやろうか。", "それでいいならお願いします。"])
+        lines = [item["text"] for item in split(
+            [self._chars("街か街の泳い込んじゃっててなんか大変だったんだよね")], 20, "ja")]
+        self.assertEqual(lines, ["街か街の泳い込んじゃっててなんか", "大変だったんだよね"])
+
+    def test_cjk_split_breaks_at_pauses_and_folds_tiny_tails(self):
+        split = self.ns["split_long_segments"]
+        result = split([self._chars("よしこんばんは今日は和服です", {2: 24.0})], 20, "ja")
+        self.assertEqual([item["text"] for item in result], ["よし", "こんばんは今日は和服です"])
+        self.assertLess(result[0]["end"], 1)
+        self.assertGreater(result[1]["start"], 24)
+        lone = {"start": 5, "end": 5.02, "text": "?", "words": [{"word": "?", "start": 5, "end": 5.02}]}
+        result = split([self._chars("そうなの"), lone], 20, "ja")
+        self.assertEqual([item["text"] for item in result], ["そうなの?"])
+        text = "あいうえおかきくけこさしすせそたちつてとなに"
+        self.assertEqual([item["text"] for item in split([self._chars(text)], 20, "ja")], [text])
 
     def test_cjk_split_without_any_timed_word_is_untouched(self):
         split = self.ns["split_long_segments"]
