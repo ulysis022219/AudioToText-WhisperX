@@ -38,7 +38,6 @@
 |:---:|---|:---:|
 | **1** | Installs and verifies the pinned Python 3.13 / PyTorch cu128 stack, then restarts | ✅ |
 | **2** | Mounts Google Drive and lists the files in `MyDrive/for process` | ✅ |
-| **2.5** | Records audio from your microphone straight into the input folder | — |
 | **3** | Transcribes (or translates to English) and checkpoints each finished file | ✅ |
 | **4** | Writes the output files to Drive, recovering from the checkpoint if needed | ✅ |
 | **5** | Translates the transcript with DeepL and saves the translated subtitles | — |
@@ -52,8 +51,8 @@
 | `transcription_backend` | Local WhisperX | Local GPU (private) or OpenAI API (uploads audio) |
 | `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
 | `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
-| `language` | Auto-Detect | Setting the known language improves accuracy |
-| `use_model` | `large-v3` | Smaller models are faster but less accurate |
+| `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
+| `use_model` | `large-v3` | Smaller models are faster but less accurate. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only) |
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
 | `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
 | `prompt` | — | Short terminology hints, e.g. names Whisper keeps mishearing |
@@ -124,7 +123,7 @@ For each input, the JSON output also records the alignment status, the alignment
 | Environment verification failed | Delete `/tmp/deps_installed_v3` and rerun Step 1 |
 | CUDA out of memory | Handled automatically. If it still fails at `batch_size=1`, restart the runtime and use `int8` or a smaller model |
 | `cudaErrorInvalidDevice` | Restart the runtime (or switch the GPU type), then rerun from Step 1 |
-| Transcript is in the wrong language | Set `language` explicitly instead of `Auto-Detect` |
+| Transcript is in the wrong language | Set `language` to the spoken language (the default is Japanese) |
 | A name or term is misheard | Add the correct spelling to Step 3 `prompt` |
 | VAD security check failed | Rerun Step 1 to reinstall WhisperX 3.8.6. Do not bypass the checksum |
 | Alignment failed | Check `alignment_error` in the JSON output. Enable `fail_if_alignment_fails` for strict runs |
