@@ -110,18 +110,12 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn("collect_quality_notes", TRANSCRIBE)
         self.assertIn("quality_notes", TRANSCRIBE)
         self.assertIn("Review", TRANSCRIBE)
-        self.assertNotIn("asmr_terms =", TRANSCRIBE)
-        self.assertNotIn("asmr_acronyms =", TRANSCRIBE)
-        self.assertIn("manual hints only", TRANSCRIBE)
+        self.assertNotIn("use_asmr_profile", TRANSCRIBE + OUTPUT)
         # asr_options are fixed at load time; a changed option must force a reload.
         self.assertIn("json.dumps(asr_options, sort_keys=True)", TRANSCRIBE)
         self.assertIn("asr_options=asr_options", TRANSCRIBE)
         self.assertLess(
             TRANSCRIBE.index('raw_quality_notes = collect_quality_notes(raw_asr_segments)'),
-            TRANSCRIBE.index('result = whisperx.align'))
-        self.assertLess(
-            TRANSCRIBE.index('no_speech_ranges = find_no_speech_ranges(raw_asr_segments)',
-                             TRANSCRIBE.index('raw_quality_notes =')),
             TRANSCRIBE.index('result = whisperx.align'))
         self.assertIn('result["quality_notes"] = raw_quality_notes', TRANSCRIBE)
         self.assertNotIn('"hotwords": prompt or None', TRANSCRIBE)
@@ -135,31 +129,10 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes", "find_no_speech_ranges", "mark_non_speech",
+             "collect_quality_notes",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "NO_SPEECH_MARK_THRESHOLD": 0.6,
-             "free_vram": lambda: None},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None},
         )
-
-    def test_no_speech_ranges_use_shared_threshold(self):
-        ranges = self.ns["find_no_speech_ranges"]([
-            {"start": 0, "end": 1, "no_speech_prob": 0.6},
-            {"start": 1, "end": 2, "no_speech_prob": 0.61},
-            {"start": 2, "end": 3},
-        ])
-        self.assertEqual(ranges, [(1.0, 2.0)])
-
-    def test_aligned_non_speech_uses_raw_asr_ranges(self):
-        segments = [
-            {"start": 0, "end": 2, "text": "real speech", "words": [{"word": "real"}]},
-            {"start": 10, "end": 12, "text": "ASMR,R18,KU100", "words": [{"word": "ASMR"}]},
-            {"start": 12, "end": 14, "text": "boundary speech", "words": [{"word": "boundary"}]},
-        ]
-        marked = self.ns["mark_non_speech"](segments, [(9.5, 12.5)])
-        self.assertEqual(marked[0]["text"], "real speech")
-        self.assertEqual(marked[1]["text"], "[ASMR sounds]")
-        self.assertEqual(marked[1]["words"], [{"word": "ASMR"}])
-        self.assertEqual(marked[2]["text"], "boundary speech")
 
     def test_cuda_oom_retries_with_smaller_batches(self):
         attempted_batches = []
@@ -402,8 +375,7 @@ class OutputUtilityTests(unittest.TestCase):
         remove_words = OUTPUT.index('segment.pop("words", None)')
         self.assertLess(json_branch, remove_words)
         self.assertIn("save_raw_json = True", OUTPUT)
-        self.assertIn('cleanup_repetitions = "Auto"', OUTPUT)
-        self.assertNotIn("_ASMR_PROFILE_ACTIVE", OUTPUT + TRANSCRIBE)
+        self.assertIn('cleanup_repetitions = False #@param {type:"boolean"}', OUTPUT)
 
     def test_failed_write_with_overwrite_keeps_previous_outputs(self):
         # With overwrite on, "reservations" are the user's real previous files.
@@ -428,12 +400,11 @@ class DeepLTests(unittest.TestCase):
         self.assertIn('result["source_language"] = result.get("language")', TRANSCRIBE)
         self.assertIn('result["language"] = "en"', TRANSCRIBE)
 
-    def test_translation_uses_sentence_units_and_cleans_up_glossary(self):
+    def test_translation_uses_sentence_units(self):
         self.assertNotIn("translation_mode", DEEPL)
         self.assertNotIn("translate_with_retry", DEEPL)  # deepl client retries itself
-        self.assertIn("glossary=glossary if use_file_glossary else None", DEEPL)
-        self.assertIn("translator.delete_glossary(glossary)", DEEPL)
-        self.assertLess(DEEPL.index("finally:"), DEEPL.index("translator.delete_glossary(glossary)"))
+        self.assertNotIn("glossary", DEEPL)
+        self.assertIn('model_type="prefer_quality_optimized"', DEEPL)
         self.assertIn("build_translation_units", DEEPL)
         self.assertLess(DEEPL.index('raise RuntimeError("Run Step 4 once'),
                         DEEPL.index("load_results_checkpoint(CHECKPOINT_PATH)"))
@@ -475,16 +446,16 @@ class DeepLTranslationUtilityTests(unittest.TestCase):
         build = self.ns["build_translation_units"]
         segments = [
             {"id": 0, "start": 0.0, "end": 1.5, "text": "んーと、じゃあ"},
-            {"id": 1, "start": 1.5, "end": 3.0, "text": "フェラ、フェラして。"},
-            {"id": 2, "start": 3.0, "end": 4.5, "text": "パイパン"},
+            {"id": 1, "start": 1.5, "end": 3.0, "text": "ちょっと、待って。"},
+            {"id": 2, "start": 3.0, "end": 4.5, "text": "一緒に"},
             {"id": 3, "start": 4.5, "end": 6.0, "text": "してみよっか。"},
         ]
         units = build(segments)
         self.assertEqual(len(units), 2)
-        self.assertEqual(units[0]["text"], "んーと、じゃあフェラ、フェラして")
+        self.assertEqual(units[0]["text"], "んーと、じゃあちょっと、待って")
         self.assertEqual((units[0]["start"], units[0]["end"]), (0.0, 3.0))
         self.assertEqual(units[0]["id"], 0)
-        self.assertEqual(units[1]["text"], "パイパンしてみよっか")
+        self.assertEqual(units[1]["text"], "一緒にしてみよっか")
         self.assertEqual(units[1]["id"], 2)
 
     def test_build_translation_units_skips_replacement_only_fragments(self):
@@ -546,10 +517,10 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         cls.ns = load_functions(
             TRANSCRIBE,
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
-             "merge_api_segments", "prepare_api_chunks", "mark_non_speech",
+             "merge_api_segments", "prepare_api_chunks",
              "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
              "is_cuda_out_of_memory"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "NO_SPEECH_MARK_THRESHOLD": 0.6,
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"},
              "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
              "free_vram": lambda: None},
         )
@@ -654,13 +625,6 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
                 chunks, calls = self._prepare_with_fake_ffmpeg("5\n", name)
                 self.assertEqual(calls, [])
                 self.assertEqual(chunks[0]["offset_seconds"], 0.0)
-
-    def test_non_speech_marking_ignores_zero_length_and_empty_segments(self):
-        mark = self.ns["mark_non_speech"]
-        segments = [{"start": 5, "end": 5, "text": "x"}, {"start": 0, "end": 1, "text": " "}]
-        self.assertEqual(mark(segments, [(0, 10)]), segments)
-        self.assertEqual(mark([{"start": 0, "end": 1, "text": "x"}], []),
-                         [{"start": 0, "end": 1, "text": "x"}])
 
     def test_timestamps_clamp_and_round(self):
         fmt = self.ns["format_timestamp"]
@@ -803,21 +767,12 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         cls.ns = load_functions(
             DEEPL,
             {"normalize_translation_source", "build_translation_units",
-             "split_display_lines", "valid_resume_prefix", "glossary_applies",
-             "create_asmr_glossary", "deepl_source_code"},
-            {"use_glossary": True, "task": "transcribe",
-             "ASMR_GLOSSARY": {"フェラ": "fellatio"}, "GLOSSARY_NAME": "g"},
+             "split_display_lines", "valid_resume_prefix", "deepl_source_code"},
+            {},
         )
 
     def texts(self, segments):
         return [unit["text"] for unit in self.ns["build_translation_units"](segments)]
-
-    def test_non_speech_placeholders_are_excluded_and_break_sentences(self):
-        self.assertEqual(self.texts([
-            {"id": 0, "start": 0, "end": 1, "text": "んー、じゃあ"},
-            {"id": 1, "start": 1, "end": 2, "text": "[ASMR sounds]"},
-            {"id": 2, "start": 2, "end": 3, "text": "やろうか。"},
-        ]), ["んー、じゃあ", "やろうか"])
 
     def test_latin_ellipsis_decimals_and_closers_do_not_make_junk_units(self):
         self.assertEqual(self.texts([
@@ -856,31 +811,6 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertFalse(valid(source + source, source))
         self.assertFalse(valid([{"id": 0, "start": 0.0, "end": 1.5}], source))
         self.assertFalse(valid("nope", source))
-
-    def test_glossary_only_for_japanese_to_english_transcripts(self):
-        applies = self.ns["glossary_applies"]
-        self.assertTrue(applies("JA", "EN-US"))
-        self.assertTrue(applies("JA", "EN-GB"))
-        self.assertFalse(applies("JA", "DE"))
-        self.assertFalse(applies("ZH", "EN-US"))
-        with mock.patch.dict(self.ns, {"task": "translate"}):
-            self.assertFalse(applies("JA", "EN-US"))  # DeepL needs an explicit source
-        with mock.patch.dict(self.ns, {"use_glossary": False}):
-            self.assertFalse(applies("JA", "EN-US"))
-
-    def test_glossary_replaces_stale_copies_and_passes_a_dict(self):
-        translator = mock.Mock()
-        translator.list_glossaries.return_value = [
-            types.SimpleNamespace(name="g"), types.SimpleNamespace(name="other")]
-        translator.create_glossary.side_effect = (
-            lambda name, source, target, entries: dict(entries.items()))
-        created = self.ns["create_asmr_glossary"](translator)
-        self.assertEqual(created, {"フェラ": "fellatio"})
-        translator.delete_glossary.assert_called_once_with(
-            translator.list_glossaries.return_value[0])
-        translator.create_glossary.side_effect = RuntimeError("quota")
-        with mock.patch("builtins.print"):
-            self.assertIsNone(self.ns["create_asmr_glossary"](translator))
 
     def test_source_codes_accept_whisper_codes_and_names(self):
         fake_tokenizer = types.ModuleType("whisper.tokenizer")

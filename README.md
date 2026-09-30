@@ -22,7 +22,6 @@
 - **Subtitle-ready output** in `srt`, `vtt`, `txt`, `tsv`, and `json` (UTF-8 BOM + CRLF for broad player support).
 - **Optional DeepL translation** into 30+ languages, translating whole sentences instead of subtitle fragments.
 - **Optional OpenAI backend** for when you don't want to use a GPU.
-- **ASMR content profile** tuned for whisper-quiet, mouth-sound-heavy Japanese audio.
 
 ## 🚀 Quick start
 
@@ -32,9 +31,6 @@
 4. Run **Step 2** to connect Google Drive, then drop your files into `My Drive/for process`.
 5. In **Step 3**, paste a file path (or the whole folder path) into `audio_file` and run it.
 6. Run **Step 4** to save the results to `My Drive/audio_transcription`.
-
-> [!IMPORTANT]
-> **The ASMR profile is on by default.** It forces Japanese when the language is `Auto-Detect`. For any other kind of audio, untick `use_asmr_profile` in Step 3 (or pick the language explicitly).
 
 ## 🧭 Workflow
 
@@ -55,7 +51,6 @@
 |---|---|---|
 | `transcription_backend` | Local WhisperX | Local GPU (private) or OpenAI API (uploads audio) |
 | `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
-| `use_asmr_profile` | ✅ on | High accuracy, no context conditioning, Japanese lock, non-speech marked `[ASMR sounds]` |
 | `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
 | `language` | Auto-Detect | Setting the known language improves accuracy |
 | `use_model` | `large-v3` | Smaller models are faster but less accurate |
@@ -77,7 +72,7 @@
 |---|---|---|
 | `output_dir` | `MyDrive/audio_transcription` | Where the files are written |
 | `output_formats` | `srt` | Any comma-separated mix of `txt, vtt, srt, tsv, json` |
-| `cleanup_repetitions` | Auto | Collapses repetition loops. `Auto` turns it on only after an ASMR-profile run |
+| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) |
 | `save_raw_json` | on | Also writes an uncleaned `.raw.json` with word-level data |
 | `overwrite_existing` | off | When off, a new run gets a `-1`, `-2`, … suffix instead of replacing old files |
 
@@ -88,9 +83,8 @@
 | `deepl_target_language` | English (American) | Any DeepL target language |
 | `deepl_formality` | default | `formal` / `informal` where the target supports it |
 | `share_context` | on | Sends neighbouring lines as context for better coherence |
-| `use_glossary` | on | Fixed Japanese → English ASMR glossary (applies only to JA → EN) |
 
-Step 5 rejoins Step 3's short display fragments into whole sentences before translating them, skips `[ASMR sounds]` markers, and splits the English back into readable subtitle lines. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped. The temporary DeepL glossary is deleted afterwards.
+Step 5 rejoins Step 3's short display fragments into whole sentences before translating them, uses DeepL's quality-optimized model where available, and splits the translation back into readable subtitle lines. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
 
 ## 🔐 Secrets
 
@@ -130,8 +124,8 @@ For each input, the JSON output also records the alignment status, the alignment
 | Environment verification failed | Delete `/tmp/deps_installed_v3` and rerun Step 1 |
 | CUDA out of memory | Handled automatically. If it still fails at `batch_size=1`, restart the runtime and use `int8` or a smaller model |
 | `cudaErrorInvalidDevice` | Restart the runtime (or switch the GPU type), then rerun from Step 1 |
-| Transcript is in the wrong language | Turn off the ASMR profile, or set `language` explicitly |
-| A term is misheard (e.g. フェラ → フェラー → "Ferrari") | Add the correct spelling to Step 3 `prompt` |
+| Transcript is in the wrong language | Set `language` explicitly instead of `Auto-Detect` |
+| A name or term is misheard | Add the correct spelling to Step 3 `prompt` |
 | VAD security check failed | Rerun Step 1 to reinstall WhisperX 3.8.6. Do not bypass the checksum |
 | Alignment failed | Check `alignment_error` in the JSON output. Enable `fail_if_alignment_fails` for strict runs |
 | Secret not found | Check the exact secret name and that Notebook access is on |
