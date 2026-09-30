@@ -254,6 +254,10 @@ class TranscriptionUtilityTests(unittest.TestCase):
             {"start": 0.0, "end": 9.0, "segments": [(0.0, 2.0), (3.0, 5.0), (8.0, 9.0)]},
             {"start": 12.0, "end": 14.0, "segments": [(12.0, 14.0)]}])
         self.assertEqual([(chunk["start"], chunk["end"]) for chunk in split], [(0.0, 5.0), (8.0, 9.0), (12.0, 14.0)])
+        # A click inside a pause neither blocks the split nor becomes a chunk of its own.
+        split = self.ns["split_vad_chunks_at_pauses"]([
+            {"start": 0.0, "end": 9.0, "segments": [(0.0, 2.0), (3.5, 3.55), (6.0, 7.0), (8.0, 8.05)]}])
+        self.assertEqual([chunk["segments"] for chunk in split], [[(0.0, 2.0)], [(6.0, 7.0)]])
 
     def test_vad_chunks_are_padded_into_silence_only(self):
         chunks = [{"start": 0.1, "end": 5.0}, {"start": 5.3, "end": 9.0},
