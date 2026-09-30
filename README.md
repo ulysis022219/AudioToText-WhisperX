@@ -1,129 +1,144 @@
-# 🗣️ AudioToText — WhisperX (Google Colab)
+<div align="center">
+
+# 🗣️ AudioToText — WhisperX
+
+**Turn audio and video into accurate transcripts, subtitles, and translations — free, in your browser, on Google Colab.**
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ulysis022219/AudioToText-WhisperX/blob/main/AudioToText_WhisperX.ipynb)
 [![Validate notebook](https://github.com/ulysis022219/AudioToText-WhisperX/actions/workflows/validate.yml/badge.svg)](https://github.com/ulysis022219/AudioToText-WhisperX/actions/workflows/validate.yml)
+![Python 3.13](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
+![WhisperX 3.8.6](https://img.shields.io/badge/WhisperX-3.8.6-6E40C9)
 
-Transcribe audio/video in Google Colab with [WhisperX](https://github.com/m-bain/whisperX), word-level alignment, CJK-safe subtitle splitting, persistent Google Drive outputs, optional OpenAI transcription, and optional DeepL translation.
+</div>
 
-## Quick start
+---
 
-1. Open the notebook with the badge above.
-2. Choose **Runtime → Change runtime type → T4 GPU**.
-3. Run Step 1. It verifies exact package versions and intentionally restarts once.
-4. Run Step 2 and add files to `/content/drive/MyDrive/for process`.
-5. Run Step 3, then Step 4 to save outputs.
+## ✨ Features
 
-Steps 2.5 (microphone recording) and 5 (DeepL) are optional.
+- **Accurate local transcription** with [WhisperX](https://github.com/m-bain/whisperX) (`large-v3` by default) on Colab's free T4 GPU — audio never leaves the runtime.
+- **Word-level timestamps** via forced alignment, with subtitle splitting that is safe for Japanese and Chinese.
+- **Batch processing** — point it at a Drive folder and it transcribes every audio/video file inside.
+- **Crash-safe** — results are checkpointed to Google Drive after every file, and Step 4 recovers them after a disconnect.
+- **Subtitle-ready output** in `srt`, `vtt`, `txt`, `tsv`, and `json` (UTF-8 BOM + CRLF for broad player support).
+- **Optional DeepL translation** into 30+ languages, translating whole sentences instead of subtitle fragments.
+- **Optional OpenAI backend** for when you don't want to use a GPU.
 
-## Workflow
+## 🚀 Quick start
 
-| Step | Purpose |
+1. Click **Open in Colab** above.
+2. Select **Runtime → Change runtime type → T4 GPU → Save**.
+3. Run **Step 1**. It installs pinned dependencies, then restarts the runtime once — this is expected.
+4. Run **Step 2** to connect Google Drive, then drop your files into `My Drive/for process`.
+5. In **Step 3**, paste a file path (or the whole folder path) into `audio_file` and run it.
+6. Run **Step 4** to save the results to `My Drive/audio_transcription`.
+
+## 🧭 Workflow
+
+| Step | What it does | Required |
+|:---:|---|:---:|
+| **1** | Installs and verifies the pinned Python 3.13 / PyTorch cu128 stack, then restarts | ✅ |
+| **2** | Mounts Google Drive and lists the files in `MyDrive/for process` | ✅ |
+| **3** | Transcribes (or translates to English) and checkpoints each finished file | ✅ |
+| **4** | Writes the output files to Drive, recovering from the checkpoint if needed | ✅ |
+| **5** | Translates the transcript with DeepL and saves the translated subtitles | — |
+
+## ⚙️ Settings
+
+### Step 3 — Transcribe
+
+| Option | Default | Description |
+|---|---|---|
+| `transcription_backend` | Local WhisperX | Local GPU (private) or OpenAI API (uploads audio) |
+| `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
+| `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
+| `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
+| `use_model` | `large-v3` | Smaller models are faster but less accurate. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only) |
+| `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
+| `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
+| `prompt` | — | Short terminology hints, e.g. names Whisper keeps mishearing |
+| `compute_type` | `float16` | Switched to `int8` automatically on CPU |
+| `batch_size` | `8` | Halved automatically on CUDA out-of-memory, down to `1` |
+| `word_timestamps` | on | Forced alignment for word-level timing |
+| `fail_if_alignment_fails` | off | Stop instead of saving output marked as degraded |
+| `max_chars_per_line` | `20` | Subtitle line length for Japanese/Chinese |
+
+> [!TIP]
+> Keep `prompt` short. Whisper can repeat hint text over silence. If you see hallucinated hint text, clear the field and rerun.
+
+### Step 4 — Save
+
+| Option | Default | Description |
+|---|---|---|
+| `output_dir` | `MyDrive/audio_transcription` | Where the files are written |
+| `output_formats` | `srt` | Any comma-separated mix of `txt, vtt, srt, tsv, json` |
+| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) |
+| `save_raw_json` | on | Also writes an uncleaned `.raw.json` with word-level data |
+| `overwrite_existing` | off | When off, a new run gets a `-1`, `-2`, … suffix instead of replacing old files |
+
+### Step 5 — DeepL (optional)
+
+| Option | Default | Description |
+|---|---|---|
+| `deepl_target_language` | English (American) | Any DeepL target language |
+| `deepl_formality` | default | `formal` / `informal` where the target supports it |
+| `share_context` | on | Sends neighbouring lines as context for better coherence |
+
+Step 5 rejoins Step 3's short display fragments into whole sentences before translating them, uses DeepL's quality-optimized model where available, and splits the translation back into readable subtitle lines. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
+
+## 🔐 Secrets
+
+Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Never paste keys into a cell.
+
+| Secret | Needed for |
 |---|---|
-| **1** | Install and verify pinned Python 3.13 / PyTorch cu128 dependencies; restart cleanly. |
-| **2** | Mount Drive and create `MyDrive/for process`. |
-| **2.5** | Optionally record audio directly to the Drive input folder. |
-| **3** | Transcribe locally with WhisperX or explicitly upload audio to OpenAI. Checkpoint every completed file. |
-| **4** | Recover checkpoints if needed and save persistent outputs to Drive. |
-| **5** | Optionally send transcript text to DeepL and save translated outputs. |
+| `HF_TOKEN` | Optional. Only needed if an alignment model is gated |
+| `OPENAI_API_KEY` | The OpenAI backend |
+| `DEEPL_API_KEY` | Step 5 |
 
-## Secrets
+## 🛡️ Privacy & security
 
-Add secrets with the **🔑 Secrets** panel in Colab and enable **Notebook access**.
-
-| Secret | When needed |
+| Where your data goes | When |
 |---|---|
-| `HF_TOKEN` | Optional for public alignment downloads; required only if a safe allowlisted model is gated. |
-| `OPENAI_API_KEY` | Required only for the OpenAI backend. Never entered into a notebook form. |
-| `DEEPL_API_KEY` | Required only when Step 5 is run. |
+| **Colab runtime only** | Local WhisperX (default). Only model weights are downloaded |
+| **OpenAI** | OpenAI backend: the audio (or ≤24 MiB MP3 chunks of it) is uploaded |
+| **DeepL** | Step 5: transcript text only, never audio |
+| **Google Drive** | Checkpoints and outputs under `MyDrive/audio_transcription` |
 
-Do not paste credentials into cells or save a notebook containing a secret. Rotate any credential that was exposed.
+- Every dependency version is pinned exactly and verified after install.
+- PyTorch's weights-only loading is enforced globally. The one legacy checkpoint WhisperX bundles (its VAD model) is verified against a pinned SHA-256 before it is loaded.
+- Alignment models come from TorchAudio or from an allowlist of Hugging Face repos pinned to immutable safetensors revisions. Unsafe pickle fallbacks are disabled.
+- Output files are written atomically and are never overwritten unless you ask.
 
-## Privacy and storage
+## 📁 Outputs & recovery
 
-- **Local WhisperX:** audio is processed inside the Colab runtime. ASR and alignment model files are downloaded from Hugging Face; WhisperX's bundled VAD checkpoint is verified locally before loading.
-- **OpenAI backend:** selected audio/chunks are uploaded to OpenAI for transcription.
-- **DeepL:** transcript text, but not audio, is sent to DeepL when Step 5 is run.
-- **Google Drive:** raw Step 3 checkpoints and generated outputs are stored under `MyDrive/audio_transcription` by default.
+Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-Review the applicable provider policies before processing sensitive material.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, or repetition risk so you can review them.
 
-## Step 3 options
+## 🩺 Troubleshooting
 
-| Option | Meaning |
+| Problem | Fix |
 |---|---|
-| `transcription_backend` | Local WhisperX (default) or OpenAI API. |
-| `task_label` | Transcribe (default) or translate speech to English. |
-| `audio_file` | One full input path per line; commas in filenames are supported. |
-| `language` | Force a language or auto-detect it. |
-| `use_model` | Local Whisper model; `large-v3` favors accuracy. |
-| `prompt` | Optional free-text vocabulary/style hint; blank by default to avoid bias. |
-| `prompt_names` / `prompt_terms` / `prompt_acronyms` / `subject_area` | Optional manual hints. Keep these short: Whisper may echo prompt text during quiet or non-speech audio. The ASMR profile does not auto-inject a glossary. |
-| `quality_mode` | `Balanced` (beam 3) or `High accuracy` (beam 5). `High accuracy` is slower. |
-| `context_conditioning` | Feed previous text into each pass for continuity; may repeat on noisy audio, so off by default. |
-| `compute_type` | `float16` for GPU, automatically changed to `int8` on CPU. |
-| `batch_size` | Local WhisperX batch size. Defaults to `8` for a Colab T4; on CUDA OOM it automatically retries at half the size down to `1`. |
-| `word_timestamps` | Request local WhisperX forced alignment for transcription. |
-| `fail_if_alignment_fails` | Stop instead of producing explicitly marked degraded output. |
-| `max_chars_per_line` | CJK character limit; Latin-language segments are not destructively rejoined. |
+| Runtime restarted after Step 1 | Expected. Continue with Step 2 |
+| Environment verification failed | Delete `/tmp/deps_installed_v3` and rerun Step 1 |
+| CUDA out of memory | Handled automatically. If it still fails at `batch_size=1`, restart the runtime and use `int8` or a smaller model |
+| `cudaErrorInvalidDevice` | Restart the runtime (or switch the GPU type), then rerun from Step 1 |
+| Transcript is in the wrong language | Set `language` to the spoken language (the default is Japanese) |
+| A name or term is misheard | Add the correct spelling to Step 3 `prompt` |
+| VAD security check failed | Rerun Step 1 to reinstall WhisperX 3.8.6. Do not bypass the checksum |
+| Alignment failed | Check `alignment_error` in the JSON output. Enable `fail_if_alignment_fails` for strict runs |
+| Secret not found | Check the exact secret name and that Notebook access is on |
 
-WhisperX 3.8.6's bundled Pyannote VAD uses a legacy checkpoint, so Step 3 verifies its pinned SHA-256 before loading it in a narrowly scoped exception. Forced weights-only loading remains enabled everywhere else. Alignment status, model revision, and any error are preserved in JSON. Torchaudio models are pinned by the exact Torch stack; Hugging Face alignment uses an immutable safetensors allowlist. Languages without a safe artifact degrade explicitly instead of loading legacy pickle weights. Translation-to-English does not run word alignment.
+## 🧪 Development
 
-For English output, keep `language` on the known source language, use `quality_mode="High accuracy"` and `context_conditioning` for continuity, add only short necessary hints under the terminology fields, and review the per-file low-confidence segment flags. Local WhisperX segments also record `avg_logprob`, `no_speech_prob`, and `compression_ratio` quality signals; flagged segments are collected in the checkpoint as `quality_notes` and summarized at the end of Step 3 so ASR uncertainty is visible before translation.
-
-## Outputs and recovery
-
-Step 3 atomically updates:
-
-```text
-/content/drive/MyDrive/audio_transcription/_last_results.json
-```
-
-Step 4 automatically validates and loads that checkpoint if in-memory `results` were lost. Final files default to the same Drive folder.
-
-Supported formats are `txt`, `vtt`, `srt`, `tsv`, and `json`. Step 4:
-
-- prevents same-basename and previous-run overwrites by default;
-- writes atomically;
-- normalizes only newly generated SRT/VTT files to UTF-8 BOM + CRLF;
-- preserves untouched word-level data in `.raw.json` by default;
-- leaves repetition cleanup off by default because repeated speech may be intentional.
-
-## OpenAI behavior
-
-Audio over the upload safety threshold is converted by FFmpeg to verified sub-24-MiB MP3 chunks in an isolated temporary directory. Chunk timestamps retain their real source offsets, including silence, and temporary files are removed automatically.
-
-## DeepL behavior
-
-Step 5 translates whole sentence/clause units rather than the short ~20-char display fragments Step 3 emits, so English stays grammatical and does not fragment into connector noise. Before translation it normalizes each unit's source text (dropping stray `U+FFFD` replacement characters and trimming leading/trailing Japanese punctuation), and optionally applies a client-side ASMR glossary (see below) so known terms render correctly instead of being transliterated or guessed. It does not embed transcript text as XML. Each returned batch is cardinality-checked and checkpointed after translation so partial work remains inspectable if a later request fails.
-
-The optional DeepL glossary maps fixed Japanese ASMR terms (e.g. フェラ → fellatio, 乳首 → nipple) at the translation layer only. It is deterministic and never feeds hotwords back into the Whisper step, so it cannot cause the quiet-audio echo the automatic ASR glossary did. Disable it with `use_glossary = False`.
-
-## Troubleshooting
-
-- **Runtime restarts after Step 1:** expected once; reconnect and continue to Step 2.
-- **Environment verification fails:** remove `/tmp/deps_installed_v3` and rerun Step 1.
-- **CUDA out of memory:** Step 3 automatically halves `batch_size` and retries. If it still fails at `1`, restart the runtime, then use `compute_type="int8"` or a smaller model.
-- **Hallucinated prompt/glossary text:** clear all optional prompt fields and rerun Step 3. The ASMR profile intentionally does not auto-inject terms because Whisper can echo them over quiet audio. The Step 5 DeepL glossary is separate and safe; it affects translation only.
-- **Mis-heard terms (e.g. Whisper reads フェラ as `フェラー`, which DeepL then renders as "Ferrari"):** add the correct spelling to Step 3 `prompt_terms` (e.g. `フェラ, パイズリ`) as a manual hint. This fixes the ASR source, unlike the Step 5 glossary which only affects translation. Keep hints short and specific so Whisper does not echo them during quiet audio.
-- **CPU warning:** enable a GPU runtime; CPU execution is much slower.
-- **VAD security check failed:** rerun Step 1 to reinstall the pinned WhisperX 3.8.6 package; do not bypass the checksum.
-- **Alignment failed:** inspect `alignment_error` in JSON, confirm network/model access, or enable `fail_if_alignment_fails` for strict behavior.
-- **Secret not found:** confirm its exact name and enable Notebook access.
-- **Output already exists:** the notebook adds a suffix unless `overwrite_existing` is enabled.
-
-## Development validation
-
-The notebook remains self-contained so the Colab badge works without cloning the repository. Pure utility behavior is tested directly from the notebook source:
+The notebook is self-contained, so the Colab badge works without cloning. Its pure functions are tested directly from the notebook source, without GPU or network access:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-CI runs the checks on Python 3.11 and 3.13. Tests cover notebook syntax and metadata, dependency/security invariants, checkpointing, CJK versus Latin splitting, OpenAI source offsets and chunk limits, output validation/collisions, raw JSON preservation, subtitle normalization scope, and DeepL response checks.
+CI runs the suite on Python 3.11 and 3.13 for every push and pull request.
 
-## Credits
+## 🙏 Credits
 
-- [WhisperX](https://github.com/m-bain/whisperX)
-- [OpenAI Whisper](https://github.com/openai/whisper)
-- [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText), the original notebook basis
-- [DeepL API](https://www.deepl.com/pro-api)
+[WhisperX](https://github.com/m-bain/whisperX) · [OpenAI Whisper](https://github.com/openai/whisper) · [DeepL API](https://www.deepl.com/pro-api) · based on [Carleslc/AudioToText](https://github.com/Carleslc/AudioToText)
