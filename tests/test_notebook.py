@@ -981,6 +981,10 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertEqual([cue["text"] for cue in cues],
                          ["What about here? Rub, rub, rub... What\nabout here? Here?",
                           "Everything's so sensitive."])
+        cues = self.ns["subtitle_segments"]([{"id": 0, "start": 0, "end": 4, "text":
+            "I missed you so much\nCome here. Let me hold you."}])
+        self.assertEqual(" ".join(cue["text"].replace("\n", " ") for cue in cues),
+                         "I missed you so much Come here. Let me hold you.")
 
     def test_resume_prefix_rejects_mismatches(self):
         valid = self.ns["valid_resume_prefix"]
