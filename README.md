@@ -56,7 +56,7 @@
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
 | `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
 | `quiet_speech` | off | More sensitive voice detection and 15-second chunks, for whispering/ASMR |
-| `reduce_repetition` | off | Blocks exact loops (a word hallucinated dozens of times). Can also trim genuine repetition |
+| `reduce_repetition` | off | Blocks exact loops (a word hallucinated dozens of times) and shortens any run of 8+ repeats to four (るるるる…). Can also trim genuine repetition |
 | `prompt` | — | Short terminology hints, e.g. names Whisper keeps mishearing |
 | `compute_type` | `float16` | Switched to `int8` automatically on CPU |
 | `batch_size` | `8` | Halved automatically on CUDA out-of-memory, down to `1` |
@@ -115,7 +115,7 @@ Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Nev
 
 Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, or cues stretched over long silences. Step 3 prints the first ten so you can review them.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
 
 ## 🩺 Troubleshooting
 
