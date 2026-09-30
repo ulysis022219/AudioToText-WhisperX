@@ -111,6 +111,9 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn("quality_notes", TRANSCRIBE)
         self.assertIn("Review", TRANSCRIBE)
         self.assertNotIn("use_asmr_profile", TRANSCRIBE + OUTPUT)
+        self.assertIn('language = "Japanese" #@param', TRANSCRIBE)
+        self.assertLess(TRANSCRIBE.index('use_model = "kotoba-tech/kotoba-whisper-v2.0-faster"'),
+                        TRANSCRIBE.index("lang_code = None if"))
         # asr_options are fixed at load time; a changed option must force a reload.
         self.assertIn("json.dumps(asr_options, sort_keys=True)", TRANSCRIBE)
         self.assertIn("asr_options=asr_options", TRANSCRIBE)
