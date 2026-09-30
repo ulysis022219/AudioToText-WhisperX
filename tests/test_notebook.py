@@ -542,7 +542,7 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
              "merge_api_segments", "prepare_api_chunks",
              "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
              "is_cuda_out_of_memory", "find_timing_issues",
-             "ease_short_cues", "collapse_repeats"},
+             "ease_short_cues", "collapse_repeats", "trim_smeared_words", "widen_crammed_cues"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "zlib": zlib,
              "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
              "free_vram": lambda: None},
@@ -730,6 +730,24 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"start": 0.5, "end": 0.8, "text": "お姉さんの身体触りたいの?"},
             {"start": 10, "end": 14, "text": "さっきも触ったじゃない"}])
         self.assertEqual([segment["end"] for segment in segments], [0.5, 2.125, 14])
+
+    def test_word_stretched_through_silence_is_trimmed(self):
+        # CTC backtracking gives the blank frames after a character to it.
+        segments = self.ns["trim_smeared_words"]([
+            {"start": 543.9, "end": 566.4, "text": "和服です",
+             "words": [{"word": "和", "start": 543.9, "end": 544.1}, {"word": "服", "start": 544.1, "end": 544.3},
+                       {"word": "で", "start": 544.3, "end": 544.5}, {"word": "す", "start": 544.5, "end": 566.4}]},
+            {"start": 0, "end": 1, "text": "untimed", "words": [{"word": "1"}]}])
+        self.assertEqual(segments[0]["words"][-1]["end"], 546.0)
+        self.assertEqual(segments[0]["end"], 546.0)
+        self.assertEqual(segments[1]["end"], 1)
+
+    def test_crammed_cues_start_earlier_into_free_time(self):
+        segments = self.ns["widen_crammed_cues"]([
+            {"start": 543.9, "end": 546.0, "text": "和服です"},
+            {"start": 566.4, "end": 566.9, "text": "ここは?すりすりすり…ここは?"},  # 15 chars in 0.5 s
+            {"start": 567.0, "end": 567.2, "text": "ちゅ"}])
+        self.assertEqual([segment["start"] for segment in segments], [543.9, 565.025, 567.0])
 
     def test_runaway_repeats_are_collapsed(self):
         segments = self.ns["collapse_repeats"]([

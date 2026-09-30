@@ -116,7 +116,7 @@ Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Nev
 
 Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, cues stretched over silence or too fast to read, and stretches of a minute or more with no text (possibly missed whispers). Step 3 prints them all. Timing is also repaired after alignment: the aligner hands the silence after a word (a breath, a kiss) to that word, so each word is capped at 1.5 s (or 0.5 s per character) and a cue ends when its speech does; text crammed into a sliver right after such a silence is started earlier, at about 8 characters per second; and cues too brief to read are held on screen longer (up to 8 characters per second, minimum 1 second) when the silence after them allows.
 
 ## 🩺 Troubleshooting
 
