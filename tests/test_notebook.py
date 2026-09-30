@@ -126,6 +126,9 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn("json.dumps([asr_options, vad_options], sort_keys=True)", TRANSCRIBE)
         self.assertIn('"no_repeat_ngram_size": 10 if reduce_repetition else 0', TRANSCRIBE)
         self.assertIn('chunk_size=vad_options["chunk_size"]', TRANSCRIBE)
+        # Kotoba-based models learned from short clips; their authors run them on 15 s chunks.
+        self.assertIn('"chunk_size": 15 if quiet_speech or kotoba_based else 30', TRANSCRIBE)
+        self.assertIn('segment["end"] = min(segment["end"], round(audio_seconds, 3))', TRANSCRIBE)
         self.assertIn('"anime-whisper"]', TRANSCRIBE)
         self.assertLess(TRANSCRIBE.index('use_model = ensure_anime_whisper()'),
                         TRANSCRIBE.index("model_name = use_model"))
@@ -146,7 +149,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes", "STOCK_HALLUCINATIONS",
+             "collect_quality_notes", "STOCK_HALLUCINATIONS", "pad_vad_chunks",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
@@ -209,17 +212,21 @@ class TranscriptionUtilityTests(unittest.TestCase):
             vad_file.write_bytes(b"trusted")
 
             events = []
-            fake_pyannote = types.SimpleNamespace(
-                __file__=str(module_file),
-                Pyannote=lambda *_args, **kwargs: events.append(
-                    (os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD"), kwargs["vad_onset"])) or "vad")
+            vad_model = types.SimpleNamespace()
+
+            def fake_vad(*_args, **kwargs):
+                events.append((os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD"), kwargs["vad_onset"]))
+                return vad_model
+            fake_vad.merge_chunks = lambda _scores, chunk_size, _onset, _offset: [
+                {"start": 1.0, "end": 1.0 + chunk_size}]
+            fake_pyannote = types.SimpleNamespace(__file__=str(module_file), Pyannote=fake_vad)
             fake_vads = types.ModuleType("whisperx.vads")
             fake_vads.pyannote = fake_pyannote
             fake_whisperx = types.SimpleNamespace(
                 load_model=lambda *_args, **kwargs: kwargs["vad_options"] is vad and kwargs["vad_model"])
             fake_torch = types.SimpleNamespace(device=lambda value: value)
             namespace = load_functions(
-                TRANSCRIBE, {"load_whisperx_with_verified_vad"}, {
+                TRANSCRIBE, {"load_whisperx_with_verified_vad", "pad_vad_chunks"}, {
                     "WHISPERX_VAD_SHA256": __import__("hashlib").sha256(b"trusted").hexdigest(),
                     "verify_file_sha256": self.ns["verify_file_sha256"],
                     "whisperx": fake_whisperx,
@@ -231,11 +238,22 @@ class TranscriptionUtilityTests(unittest.TestCase):
             with mock.patch.dict(sys.modules, {"whisperx.vads": fake_vads}):
                 with mock.patch.dict(os.environ, {"TORCH_FORCE_WEIGHTS_ONLY_LOAD": "1"}):
                     vad = {"chunk_size": 15, "vad_onset": 0.3, "vad_offset": 0.2}
-                    self.assertEqual(namespace["load_whisperx_with_verified_vad"](
-                        "large-v3", "cuda", vad), "vad")
+                    self.assertIs(namespace["load_whisperx_with_verified_vad"](
+                        "large-v3", "cuda", vad), vad_model)
                     self.assertEqual(os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"], "1")
             # The same thresholds reach the VAD model and transcribe()'s chunk merging.
             self.assertEqual(events, [(None, 0.3)])
+            # Chunks are merged 1 s shorter, then padded, so they still fit the 30 s window.
+            self.assertEqual(vad_model.merge_chunks("scores", 30, onset=0.3, offset=0.2),
+                             [{"start": 0.6, "end": 30.4}])
+
+    def test_vad_chunks_are_padded_into_silence_only(self):
+        chunks = [{"start": 0.1, "end": 5.0}, {"start": 5.3, "end": 9.0},
+                  {"start": 9.0, "end": 12.0}, {"start": 20.0, "end": 25.0}]
+        padded = self.ns["pad_vad_chunks"](chunks)
+        # Short gaps are shared, touching chunks (a long turn split mid-speech) stay put.
+        self.assertEqual([(round(chunk["start"], 3), round(chunk["end"], 3)) for chunk in padded],
+                         [(0.0, 5.15), (5.15, 9.0), (9.0, 12.4), (19.6, 25.4)])
 
     def test_atomic_checkpoint_round_trip_and_replace(self):
         dump = self.ns["atomic_json_dump"]
