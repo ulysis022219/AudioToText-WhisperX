@@ -859,20 +859,28 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         cls.ns = load_functions(
             DEEPL,
             {"normalize_translation_source", "build_translation_units",
-             "split_display_lines", "valid_resume_prefix", "deepl_source_code"},
+             "split_display_lines", "valid_resume_prefix", "deepl_source_code",
+             "collapse_translation_repeats", "subtitle_segments"},
             {},
         )
 
-    def texts(self, segments):
-        return [unit["text"] for unit in self.ns["build_translation_units"](segments)]
+    def texts(self, segments, **options):
+        return [unit["text"] for unit in self.ns["build_translation_units"](segments, **options)]
 
     def test_latin_ellipsis_decimals_and_closers_do_not_make_junk_units(self):
         self.assertEqual(self.texts([
-            {"id": 0, "start": 0, "end": 5, "text": "Wait... it costs 3.5 dollars?! Really."}]),
-            ["Wait...", "it costs 3.5 dollars?!", "Really."])
+            {"id": 0, "start": 0, "end": 5, "text": "Wait... it costs 3.5 dollars?! Really."}],
+            min_seconds=0), ["Wait...", "it costs 3.5 dollars?!", "Really."])
         self.assertEqual(self.texts([
-            {"id": 0, "start": 0, "end": 2, "text": "「はい。」そう!?うん"}]),
+            {"id": 0, "start": 0, "end": 2, "text": "「はい。」そう!?うん"}], min_seconds=0),
             ["「はい。」", "そう!?", "うん"])
+
+    def test_sentences_shorter_than_min_seconds_join_the_next_one(self):
+        # A crammed 0.7 s fragment used to become four 0.1 s cues.
+        self.assertEqual(self.texts([
+            {"id": 0, "start": 0, "end": 0.7, "text": "ここは?すりすり…ここは?"},
+            {"id": 1, "start": 0.7, "end": 3, "text": "全部敏感なんだね。どう?"}]),
+            ["ここは?すりすり…ここは?全部敏感なんだね", "どう?"])
 
     def test_bad_timestamps_and_empty_input_are_tolerated(self):
         self.assertEqual(self.texts([]), [])
@@ -894,6 +902,28 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertEqual([len(line) for line in lines], [42, 42, 16])
         self.assertEqual(split("x" * 42, max_len=42), "x" * 42)
         self.assertEqual(split("", max_len=42), "")
+
+    def test_translated_walls_of_repeats_are_shortened(self):
+        collapse = self.ns["collapse_translation_repeats"]
+        self.assertEqual(collapse("Mmm, slurp-slurp-slurp-slurp-slurp-slurp"), "Mmm, slurp-slurp-slurp…")
+        self.assertEqual(collapse("Lurururururururururu"), "Lurururur…")
+        self.assertEqual(collapse("あああああああああ好き"), "ああああ…好き")
+        self.assertEqual(collapse("No, no, no, no way"), "No, no, no, no way")
+
+    def test_subtitle_cues_have_two_lines_and_stay_readable(self):
+        cues = self.ns["subtitle_segments"]([
+            {"id": 0, "start": 0, "end": 6, "text": " ".join(f"word{i}" for i in range(25))},
+            {"id": 1, "start": 6, "end": 6.1, "text": "Mwah"},
+            {"id": 2, "start": 6.3, "end": 6.4, "text": "Haa"}])
+        self.assertTrue(all(cue["text"].count("\n") <= 1 for cue in cues))
+        self.assertEqual([cue["start"] for cue in cues[:2]], [0, cues[0]["end"]])
+        self.assertEqual(cues[1]["end"], 6)
+        self.assertEqual([(cue["start"], cue["end"]) for cue in cues[2:]], [(6, 6.3), (6.3, 7.3)])
+        cues = self.ns["subtitle_segments"]([{"id": 0, "start": 0, "end": 4, "text":
+            "What about here? Rub, rub, rub... What about here? Here? Everything's so sensitive."}])
+        self.assertEqual([cue["text"] for cue in cues],
+                         ["What about here? Rub, rub, rub... What\nabout here? Here?",
+                          "Everything's so sensitive."])
 
     def test_resume_prefix_rejects_mismatches(self):
         valid = self.ns["valid_resume_prefix"]
