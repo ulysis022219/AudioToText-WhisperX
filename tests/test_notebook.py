@@ -24,8 +24,9 @@ DEEPL = CELLS["28f7EIP-rez0"]
 def load_functions(source, names, extra_globals=None):
     tree = ast.parse(source)
     selected = [node for node in tree.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name in names]
+                if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names)
+                or (isinstance(node, ast.Assign) and len(node.targets) == 1  # constants
+                    and getattr(node.targets[0], "id", None) in names)]
     namespace = {
         "Path": Path,
         "copy": copy,
@@ -145,7 +146,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes",
+             "collect_quality_notes", "STOCK_HALLUCINATIONS",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
@@ -540,7 +541,8 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             TRANSCRIBE,
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
              "merge_api_segments", "prepare_api_chunks",
-             "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
+             "format_timestamp", "collect_quality_notes", "STOCK_HALLUCINATIONS",
+             "transcribe_with_batch_backoff",
              "is_cuda_out_of_memory", "find_timing_issues",
              "ease_short_cues", "collapse_repeats", "trim_smeared_words", "widen_crammed_cues"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "zlib": zlib,
@@ -755,6 +757,14 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"text": "ちゅぱ" * 9}])
         self.assertEqual([segment["text"] for segment in segments],
                          ["んじゅるるるる…っ!", "ごしごしごし…こっちは", "ちゅぱちゅぱちゅぱちゅぱ…"])
+
+    def test_stock_hallucinations_are_flagged(self):
+        notes = self.ns["collect_quality_notes"]([
+            {"start": 0, "end": 2, "text": "ご視聴ありがとうございました"},
+            {"start": 2, "end": 4, "text": "Thank you for watching!"},
+            {"start": 4, "end": 6, "text": "ありがとう"}])
+        self.assertEqual([note["start"] for note in notes], [0, 2])
+        self.assertIn("stock phrase", notes[0]["reasons"])
 
     def test_quality_notes_tolerate_missing_signals(self):
         self.assertEqual(self.ns["collect_quality_notes"](
