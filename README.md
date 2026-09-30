@@ -52,9 +52,11 @@
 | `task_label` | Transcribe | `Transcribe`, or `Translate to English` with Whisper |
 | `audio_file` | — | A file path or a folder path. Several paths can be given, one per line, by editing the code |
 | `language` | Japanese | Pick the spoken language, or `Auto-Detect` (it only listens to the first 30 s) |
-| `use_model` | `large-v3` | Smaller models are faster but less accurate. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only) |
+| `use_model` | `large-v3` | Smaller models are faster but less accurate. `kotoba-whisper-v2.0` is a Japanese-only [distilled large-v3](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster), about 6× faster (transcribe only). `anime-whisper` is [Kotoba fine-tuned on voice-acted Japanese](https://huggingface.co/litagin/anime-whisper) (whispers, breaths, emotive speech); converted once (~5 min) and cached in Drive under `_models/` |
 | `quality_mode` | Balanced | `Balanced` (beam 3) or `High accuracy` (beam 5, slower) |
 | `context_conditioning` | off | Feeds the previous text into each pass. Keeps continuity but can loop on noisy audio |
+| `quiet_speech` | off | More sensitive voice detection and 15-second chunks, for whispering/ASMR |
+| `reduce_repetition` | off | Blocks exact loops (a word hallucinated dozens of times). Can also trim genuine repetition |
 | `prompt` | — | Short terminology hints, e.g. names Whisper keeps mishearing |
 | `compute_type` | `float16` | Switched to `int8` automatically on CPU |
 | `batch_size` | `8` | Halved automatically on CUDA out-of-memory, down to `1` |
@@ -113,7 +115,7 @@ Add these in Colab's **🔑 Secrets** panel and turn on **Notebook access**. Nev
 
 Step 3 atomically updates `MyDrive/audio_transcription/_last_results.json` after every file. If the runtime disconnects, run Step 4 on its own and it will reload that checkpoint. Files with the same name from different folders get a short hash suffix so they never collide.
 
-For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, or repetition risk so you can review them.
+For each input, the JSON output also records the alignment status, the alignment model revision, and `quality_notes`, which flag segments with low confidence, likely non-speech, repetition loops, or cues stretched over long silences. Step 3 prints the first ten so you can review them.
 
 ## 🩺 Troubleshooting
 
