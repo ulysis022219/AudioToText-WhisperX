@@ -30,6 +30,7 @@ def load_functions(source, names, extra_globals=None):
         "copy": copy,
         "hashlib": __import__("hashlib"),
         "json": json,
+        "math": __import__("math"),
         "os": os,
         "re": __import__("re"),
         "tempfile": tempfile,
@@ -106,16 +107,15 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn('"condition_on_previous_text": context_conditioning', TRANSCRIBE)
         self.assertIn("context_conditioning", TRANSCRIBE)
         self.assertIn("effective_prompt", TRANSCRIBE)
-        self.assertIn("prompt_names", TRANSCRIBE)
-        self.assertIn("prompt_terms", TRANSCRIBE)
-        self.assertIn("prompt_acronyms", TRANSCRIBE)
-        self.assertIn("subject_area", TRANSCRIBE)
         self.assertIn("collect_quality_notes", TRANSCRIBE)
         self.assertIn("quality_notes", TRANSCRIBE)
         self.assertIn("Review", TRANSCRIBE)
         self.assertNotIn("asmr_terms =", TRANSCRIBE)
         self.assertNotIn("asmr_acronyms =", TRANSCRIBE)
-        self.assertIn("manual terminology hints only", TRANSCRIBE)
+        self.assertIn("manual hints only", TRANSCRIBE)
+        # asr_options are fixed at load time; a changed option must force a reload.
+        self.assertIn("json.dumps(asr_options, sort_keys=True)", TRANSCRIBE)
+        self.assertIn("asr_options=asr_options", TRANSCRIBE)
         self.assertLess(
             TRANSCRIBE.index('raw_quality_notes = collect_quality_notes(raw_asr_segments)'),
             TRANSCRIBE.index('result = whisperx.align'))
@@ -313,7 +313,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE, {"prepare_api_chunks"},
             {"subprocess": types.SimpleNamespace(run=fake_run)})["prepare_api_chunks"]
         with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "input.flac"
+            source = Path(directory) / "input.aiff"
             source.write_bytes(b"source")
             chunks = prepare(str(source), directory, max_bytes=50_000)
             self.assertGreater(len(chunks), 1)
@@ -402,7 +402,13 @@ class OutputUtilityTests(unittest.TestCase):
         remove_words = OUTPUT.index('segment.pop("words", None)')
         self.assertLess(json_branch, remove_words)
         self.assertIn("save_raw_json = True", OUTPUT)
-        self.assertIn("cleanup_repetitions = False", OUTPUT)
+        self.assertIn('cleanup_repetitions = "Auto"', OUTPUT)
+        self.assertNotIn("_ASMR_PROFILE_ACTIVE", OUTPUT + TRANSCRIBE)
+
+    def test_failed_write_with_overwrite_keeps_previous_outputs(self):
+        # With overwrite on, "reservations" are the user's real previous files.
+        cleanup = OUTPUT.index("for reservation in reservations:")
+        self.assertIn("if not overwrite_existing:", OUTPUT[cleanup - 200:cleanup])
 
 
 class DeepLTests(unittest.TestCase):
@@ -410,7 +416,7 @@ class DeepLTests(unittest.TestCase):
         self.assertIn('userdata.get("DEEPL_API_KEY")', DEEPL)
         self.assertNotIn('os.environ.get("DEEPL_API_KEY")', DEEPL)
         self.assertIn("text=texts", DEEPL)
-        self.assertIn("context=context", DEEPL)
+        self.assertIn('context="\\n".join(texts) if share_context else None', DEEPL)
         self.assertIn("len(responses) != len(batch)", DEEPL)
         self.assertIn("valid_resume_prefix", DEEPL)
         self.assertIn("source_signature", DEEPL)
@@ -422,14 +428,15 @@ class DeepLTests(unittest.TestCase):
         self.assertIn('result["source_language"] = result.get("language")', TRANSCRIBE)
         self.assertIn('result["language"] = "en"', TRANSCRIBE)
 
-    def test_translation_uses_sentence_cues_and_glossary(self):
-        self.assertIn("translation_mode", DEEPL)
-        self.assertIn('"Sentence cues"', DEEPL)
-        self.assertIn("use_glossary", DEEPL)
-        self.assertIn("ASMR_GLOSSARY", DEEPL)
-        self.assertIn("glossary=glossary", DEEPL)
-        self.assertIn("create_asmr_glossary", DEEPL)
+    def test_translation_uses_sentence_units_and_cleans_up_glossary(self):
+        self.assertNotIn("translation_mode", DEEPL)
+        self.assertNotIn("translate_with_retry", DEEPL)  # deepl client retries itself
+        self.assertIn("glossary=glossary if use_file_glossary else None", DEEPL)
+        self.assertIn("translator.delete_glossary(glossary)", DEEPL)
+        self.assertLess(DEEPL.index("finally:"), DEEPL.index("translator.delete_glossary(glossary)"))
         self.assertIn("build_translation_units", DEEPL)
+        self.assertLess(DEEPL.index('raise RuntimeError("Run Step 4 once'),
+                        DEEPL.index("load_results_checkpoint(CHECKPOINT_PATH)"))
         self.assertIn("normalize_translation_source", DEEPL)
         self.assertIn("split_display_lines", DEEPL)
         # U+FFFD must appear only as a Python escape in source, never as the raw char.
@@ -531,6 +538,360 @@ class DeepLTranslationUtilityTests(unittest.TestCase):
         for line in lines.split("\n"):
             self.assertLessEqual(len(line), 30)
         self.assertEqual(" ".join(lines.split("\n")), long_text)
+
+
+class TranscriptionEdgeCaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = load_functions(
+            TRANSCRIBE,
+            {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
+             "merge_api_segments", "prepare_api_chunks", "mark_non_speech",
+             "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
+             "is_cuda_out_of_memory"},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "NO_SPEECH_MARK_THRESHOLD": 0.6,
+             "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
+             "free_vram": lambda: None},
+        )
+
+    def test_inputs_expand_folders_strip_quotes_and_deduplicate(self):
+        resolve = self.ns["resolve_audio_inputs"]
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("b.mp3", "a.WAV", ".hidden.wav", "notes.txt", "c,with comma.m4a"):
+                Path(directory, name).write_bytes(b"x")
+            Path(directory, "sub").mkdir()
+            a_path = str(Path(directory, "a.WAV"))
+            files = resolve(f'  "{directory}"  \n\n{a_path}\n\'{a_path}\'')
+            self.assertEqual([Path(item).name for item in files],
+                             ["a.WAV", "b.mp3", "c,with comma.m4a"])
+
+    def test_inputs_reject_missing_blank_and_media_free_folders(self):
+        resolve = self.ns["resolve_audio_inputs"]
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "readme.txt").write_text("x", encoding="utf-8")
+            with self.assertRaisesRegex(FileNotFoundError, "No audio/video"):
+                resolve(directory)
+            with self.assertRaisesRegex(FileNotFoundError, "File not found"):
+                resolve(str(Path(directory, "missing.wav")))
+        with self.assertRaisesRegex(ValueError, "empty"):
+            resolve(" \n  \n")
+
+    def test_cjk_split_keeps_unaligned_digits_and_symbols(self):
+        split = self.ns["split_long_segments"]
+        segment = {"start": 0, "end": 3, "text": "3時に会う!", "words": [
+            {"word": "3"},
+            {"start": 0.5, "end": 1.0, "word": "時"},
+            {"start": 1.0, "end": 1.5, "word": "に"},
+            {"start": 1.5, "end": 2.0, "word": "会"},
+            {"start": 2.0, "end": 2.5, "word": "う"},
+            {"word": "!"},
+        ]}
+        result = split([segment], max_chars=2, language_code="ja")
+        self.assertEqual("".join(item["text"] for item in result), "3時に会う!")
+        self.assertEqual(result[0]["start"], 0.5)
+        self.assertEqual(result[-1]["text"], "う!")  # trailing untimed word merged back
+        self.assertEqual(result[-1]["end"], 2.5)
+
+    def test_cjk_split_without_any_timed_word_is_untouched(self):
+        split = self.ns["split_long_segments"]
+        segment = {"start": 0, "end": 1, "text": "１２３", "words": [{"word": "１２３"}]}
+        self.assertEqual(split([segment], max_chars=1, language_code="zh"), [segment])
+
+    def test_api_merge_handles_null_segments_and_renumbers_ids(self):
+        merge = self.ns["merge_api_segments"]
+        result = merge([
+            {"offset_seconds": 0, "response": {"language": "japanese", "segments": [
+                {"id": 0, "start": 0, "end": 1, "text": "a"},
+                {"id": 1, "start": 1, "end": None, "text": "b"}]}},
+            {"offset_seconds": 30, "response": {"language": None, "segments": None}},
+            {"offset_seconds": 60, "response": {"segments": [
+                {"id": 0, "start": 0, "end": 2, "text": "c"}]}},
+        ])
+        self.assertEqual([item["id"] for item in result["segments"]], [0, 1, 2])
+        self.assertEqual(result["language"], "japanese")
+        self.assertEqual(result["duration"], 62)
+        self.assertEqual(merge([])["segments"], [])
+
+    def _prepare_with_fake_ffmpeg(self, duration_text, source_name, max_bytes=50_000):
+        calls = []
+
+        class Result:
+            def __init__(self, stdout=""):
+                self.stdout = stdout
+
+        def fake_run(args, **_kwargs):
+            if args[0] == "ffprobe":
+                return Result(duration_text)
+            calls.append((float(args[args.index("-ss") + 1]),
+                          float(args[args.index("-t") + 1])))
+            Path(args[-1]).write_bytes(b"x" * int(float(args[args.index("-t") + 1]) * 1000))
+            return Result()
+
+        prepare = load_functions(
+            TRANSCRIBE, {"prepare_api_chunks"},
+            {"subprocess": types.SimpleNamespace(run=fake_run)})["prepare_api_chunks"]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / source_name
+            source.write_bytes(b"source")
+            chunks = prepare(str(source), directory, max_bytes=max_bytes)
+        return chunks, calls
+
+    def test_api_chunks_have_no_float_drift_sliver(self):
+        chunks, calls = self._prepare_with_fake_ffmpeg("100.30000000000001\n", "input.aiff")
+        self.assertAlmostEqual(sum(length for _start, length in calls), 100.3, places=6)
+        self.assertGreater(min(length for _start, length in calls), 1.0)
+        self.assertEqual(len(chunks), len(calls))
+
+    def test_api_chunks_reject_unreadable_duration(self):
+        for duration in ("N/A\n", "0\n", "nan\n", ""):
+            with self.subTest(duration=duration):
+                with self.assertRaisesRegex(RuntimeError, "valid duration"):
+                    self._prepare_with_fake_ffmpeg(duration, "input.aiff")
+
+    def test_small_supported_files_upload_directly(self):
+        for name in ("clip.flac", "clip.OGG", "clip.mp3"):
+            with self.subTest(name=name):
+                chunks, calls = self._prepare_with_fake_ffmpeg("5\n", name)
+                self.assertEqual(calls, [])
+                self.assertEqual(chunks[0]["offset_seconds"], 0.0)
+
+    def test_non_speech_marking_ignores_zero_length_and_empty_segments(self):
+        mark = self.ns["mark_non_speech"]
+        segments = [{"start": 5, "end": 5, "text": "x"}, {"start": 0, "end": 1, "text": " "}]
+        self.assertEqual(mark(segments, [(0, 10)]), segments)
+        self.assertEqual(mark([{"start": 0, "end": 1, "text": "x"}], []),
+                         [{"start": 0, "end": 1, "text": "x"}])
+
+    def test_timestamps_clamp_and_round(self):
+        fmt = self.ns["format_timestamp"]
+        self.assertEqual(fmt(-3), "00:00:00.000")
+        self.assertEqual(fmt(3599.9996), "01:00:00.000")
+        self.assertEqual(fmt("61.5"), "00:01:01.500")
+
+    def test_odd_batch_sizes_back_off_to_one(self):
+        attempted = []
+
+        class FakeModel:
+            def transcribe(self, _audio, batch_size, **_kwargs):
+                attempted.append(batch_size)
+                if batch_size > 1:
+                    raise RuntimeError("CUBLAS_STATUS_ALLOC_FAILED out of memory")
+                return {"segments": []}
+
+        with mock.patch("builtins.print"):
+            _result, used = self.ns["transcribe_with_batch_backoff"](FakeModel(), "a", 3)
+        self.assertEqual((attempted, used), ([3, 1], 1))
+
+    def test_quality_notes_tolerate_missing_signals(self):
+        self.assertEqual(self.ns["collect_quality_notes"](
+            [{"start": 0, "end": 1, "text": "x", "avg_logprob": None}]), [])
+
+
+class FakeWhisperWriter:
+    """Mirrors whisper.utils.ResultWriter naming: basename minus the last extension."""
+
+    def __init__(self, extension, output_dir):
+        self.extension, self.output_dir = extension, output_dir
+
+    def __call__(self, result, audio_path, options=None):
+        stem = os.path.splitext(os.path.basename(audio_path))[0]
+        with open(os.path.join(self.output_dir, f"{stem}.{self.extension}"), "w",
+                  encoding="utf-8") as handle:
+            if self.extension == "txt":
+                handle.write(result["text"] + "\n")
+            else:
+                for segment in result["segments"]:
+                    handle.write(f"{segment['start']}\t{segment['text']}\n")
+
+
+class OutputEdgeCaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = load_functions(
+            OUTPUT,
+            {"validate_output_formats", "load_results_checkpoint", "output_name_map",
+             "reserve_output_name", "normalize_subtitle", "write_result",
+             "clean_repeated_words", "clean_segments"},
+            {"ALLOWED_OUTPUT_FORMATS": {"txt", "vtt", "srt", "tsv", "json"},
+             "cleanup_repetitions": False,
+             "WriteText": lambda directory: FakeWhisperWriter("txt", directory),
+             "get_writer": lambda extension, directory: FakeWhisperWriter(extension, directory)},
+        )
+
+    def test_format_validation_normalizes_case_and_rejects_empty(self):
+        validate = self.ns["validate_output_formats"]
+        self.assertEqual(validate(" SRT ,Txt,srt"), ["srt", "txt"])
+        for bad in ("", " , ", "raw.json", "srt;txt"):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    validate(bad)
+
+    def test_checkpoint_rejects_wrong_shapes_and_bad_json(self):
+        load = self.ns["load_results_checkpoint"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.json"
+            for payload in ('{"schema_version": 1, "results": []}', "[]", "{not json"):
+                with self.subTest(payload=payload):
+                    path.write_text(payload, encoding="utf-8")
+                    with self.assertRaises((ValueError, AttributeError)):
+                        load(path)
+
+    def test_dotted_filenames_write_to_the_right_path(self):
+        write = self.ns["write_result"]
+        result = {"text": "a\nb", "segments": [
+            {"start": 0, "end": 1, "text": "two\nlines", "words": [{"word": "x"}]},
+            {"start": 1, "end": 2, "text": "tab\there"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(self.ns, {"output_dir": directory}):
+                for extension in ("srt", "txt", "tsv"):
+                    path = write(result, extension, "my.song.v2")
+                    self.assertEqual(Path(path).name, f"my.song.v2.{extension}")
+                    self.assertTrue(Path(path).is_file())
+                tsv = Path(directory, "my.song.v2.tsv").read_text(encoding="utf-8")
+                self.assertEqual(len(tsv.splitlines()), 2)  # newline flattened, one row each
+            self.assertEqual(result["segments"][0]["words"], [{"word": "x"}])  # input untouched
+            self.assertEqual(sorted(p.name for p in Path(directory).iterdir()),
+                             ["my.song.v2.srt", "my.song.v2.tsv", "my.song.v2.txt"])
+
+    def test_json_output_serializes_numpy_like_scalars(self):
+        class Float32:
+            def __float__(self):
+                return 0.25
+
+        write = self.ns["write_result"]
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(self.ns, {"output_dir": directory}):
+                path = write({"text": "", "segments": [{"score": Float32()}]}, "json", "x.raw")
+            self.assertEqual(json.loads(Path(path).read_text(encoding="utf-8"))["segments"][0]["score"], 0.25)
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ["x.raw.json"])
+
+    def test_subtitle_normalization_is_idempotent_and_handles_bare_cr(self):
+        normalize = self.ns["normalize_subtitle"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "a.vtt"
+            path.write_bytes(b"\xef\xbb\xbfone\rtwo\r\nthree\n")
+            normalize(path)
+            once = path.read_bytes()
+            normalize(path)
+            self.assertEqual(once, path.read_bytes())
+            self.assertEqual(once, b"\xef\xbb\xbfone\r\ntwo\r\nthree\r\n")
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ["a.vtt"])
+
+    def test_reserve_skips_names_blocked_by_any_single_format(self):
+        reserve = self.ns["reserve_output_name"]
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "clip.raw.json").write_text("old", encoding="utf-8")
+            Path(directory, "clip-1.srt").write_text("old", encoding="utf-8")
+            self.assertEqual(reserve("clip", ["srt", "raw.json"], directory), "clip-2")
+            self.assertFalse(Path(directory, "clip.srt").exists())  # rolled back
+
+    def test_name_map_handles_dotted_and_identical_stems(self):
+        names = self.ns["output_name_map"](["/a/x.tar.gz", "/b/x.tar.mp3", "/c/y.wav"])
+        self.assertEqual(names["/c/y.wav"], "y")
+        self.assertEqual(len(set(names.values())), 3)
+
+    def test_repetition_cleanup_collapses_loops_but_keeps_normal_text(self):
+        clean = self.ns["clean_repeated_words"]
+        self.assertEqual(clean("no no no no no way"), "no way")
+        self.assertEqual(clean("I said no, no."), "I said no, no.")
+        self.assertEqual(clean(""), "")
+
+
+class DeepLEdgeCaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = load_functions(
+            DEEPL,
+            {"normalize_translation_source", "build_translation_units",
+             "split_display_lines", "valid_resume_prefix", "glossary_applies",
+             "create_asmr_glossary", "deepl_source_code"},
+            {"use_glossary": True, "task": "transcribe",
+             "ASMR_GLOSSARY": {"フェラ": "fellatio"}, "GLOSSARY_NAME": "g"},
+        )
+
+    def texts(self, segments):
+        return [unit["text"] for unit in self.ns["build_translation_units"](segments)]
+
+    def test_non_speech_placeholders_are_excluded_and_break_sentences(self):
+        self.assertEqual(self.texts([
+            {"id": 0, "start": 0, "end": 1, "text": "んー、じゃあ"},
+            {"id": 1, "start": 1, "end": 2, "text": "[ASMR sounds]"},
+            {"id": 2, "start": 2, "end": 3, "text": "やろうか。"},
+        ]), ["んー、じゃあ", "やろうか"])
+
+    def test_latin_ellipsis_decimals_and_closers_do_not_make_junk_units(self):
+        self.assertEqual(self.texts([
+            {"id": 0, "start": 0, "end": 5, "text": "Wait... it costs 3.5 dollars?! Really."}]),
+            ["Wait...", "it costs 3.5 dollars?!", "Really."])
+        self.assertEqual(self.texts([
+            {"id": 0, "start": 0, "end": 2, "text": "「はい。」そう!?うん"}]),
+            ["「はい。」", "そう!?", "うん"])
+
+    def test_bad_timestamps_and_empty_input_are_tolerated(self):
+        self.assertEqual(self.texts([]), [])
+        self.assertEqual(self.texts([
+            {"id": 0, "text": "no times"},
+            {"id": 1, "start": "x", "end": 1, "text": "bad"},
+            {"id": 2, "start": 5, "end": 4, "text": "逆"},
+        ]), ["逆"])
+
+    def test_units_never_exceed_char_cap(self):
+        units = self.ns["build_translation_units"](
+            [{"id": 0, "start": 0, "end": 1, "text": "あ" * 500}], max_seconds=1e9)
+        self.assertTrue(all(len(unit["text"]) <= 120 for unit in units))
+        self.assertEqual(sum(len(unit["text"]) for unit in units), 500)
+
+    def test_display_lines_hard_wrap_unspaced_text(self):
+        split = self.ns["split_display_lines"]
+        lines = split("あ" * 100, max_len=42).split("\n")
+        self.assertEqual([len(line) for line in lines], [42, 42, 16])
+        self.assertEqual(split("x" * 42, max_len=42), "x" * 42)
+        self.assertEqual(split("", max_len=42), "")
+
+    def test_resume_prefix_rejects_mismatches(self):
+        valid = self.ns["valid_resume_prefix"]
+        source = [{"id": 0, "start": 0.0, "end": 1.0}, {"id": 1, "start": 1.0, "end": 2.0}]
+        self.assertTrue(valid([], source))
+        self.assertTrue(valid(source[:1], source))
+        self.assertFalse(valid(source + source, source))
+        self.assertFalse(valid([{"id": 0, "start": 0.0, "end": 1.5}], source))
+        self.assertFalse(valid("nope", source))
+
+    def test_glossary_only_for_japanese_to_english_transcripts(self):
+        applies = self.ns["glossary_applies"]
+        self.assertTrue(applies("JA", "EN-US"))
+        self.assertTrue(applies("JA", "EN-GB"))
+        self.assertFalse(applies("JA", "DE"))
+        self.assertFalse(applies("ZH", "EN-US"))
+        with mock.patch.dict(self.ns, {"task": "translate"}):
+            self.assertFalse(applies("JA", "EN-US"))  # DeepL needs an explicit source
+        with mock.patch.dict(self.ns, {"use_glossary": False}):
+            self.assertFalse(applies("JA", "EN-US"))
+
+    def test_glossary_replaces_stale_copies_and_passes_a_dict(self):
+        translator = mock.Mock()
+        translator.list_glossaries.return_value = [
+            types.SimpleNamespace(name="g"), types.SimpleNamespace(name="other")]
+        translator.create_glossary.side_effect = (
+            lambda name, source, target, entries: dict(entries.items()))
+        created = self.ns["create_asmr_glossary"](translator)
+        self.assertEqual(created, {"フェラ": "fellatio"})
+        translator.delete_glossary.assert_called_once_with(
+            translator.list_glossaries.return_value[0])
+        translator.create_glossary.side_effect = RuntimeError("quota")
+        with mock.patch("builtins.print"):
+            self.assertIsNone(self.ns["create_asmr_glossary"](translator))
+
+    def test_source_codes_accept_whisper_codes_and_names(self):
+        fake_tokenizer = types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.TO_LANGUAGE_CODE = {"japanese": "ja", "norwegian": "no"}
+        with mock.patch.dict(sys.modules, {"whisper": types.ModuleType("whisper"),
+                                           "whisper.tokenizer": fake_tokenizer}):
+            code = self.ns["deepl_source_code"]
+            self.assertEqual(code("ja"), "JA")
+            self.assertEqual(code("japanese"), "JA")
+            self.assertEqual(code("norwegian"), "NB")
+            self.assertEqual(code(None), "")
 
 
 if __name__ == "__main__":
