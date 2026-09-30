@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -121,7 +122,13 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertLess(TRANSCRIBE.index('use_model = "kotoba-tech/kotoba-whisper-v2.0-faster"'),
                         TRANSCRIBE.index("lang_code = None if"))
         # asr_options are fixed at load time; a changed option must force a reload.
-        self.assertIn("json.dumps(asr_options, sort_keys=True)", TRANSCRIBE)
+        self.assertIn("json.dumps([asr_options, vad_options], sort_keys=True)", TRANSCRIBE)
+        self.assertIn('"no_repeat_ngram_size": 10 if reduce_repetition else 0', TRANSCRIBE)
+        self.assertIn('chunk_size=vad_options["chunk_size"]', TRANSCRIBE)
+        self.assertIn('"anime-whisper"]', TRANSCRIBE)
+        self.assertLess(TRANSCRIBE.index('use_model = ensure_anime_whisper()'),
+                        TRANSCRIBE.index("model_name = use_model"))
+        self.assertIn('allow_patterns=["*.json", "*.txt", "*.safetensors"]', TRANSCRIBE)
         self.assertIn("asr_options=asr_options", TRANSCRIBE)
         self.assertLess(
             TRANSCRIBE.index('raw_quality_notes = collect_quality_notes(raw_asr_segments)'),
@@ -140,7 +147,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
              "collect_quality_notes",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
 
     def test_cuda_oom_retries_with_smaller_batches(self):
@@ -203,12 +210,12 @@ class TranscriptionUtilityTests(unittest.TestCase):
             events = []
             fake_pyannote = types.SimpleNamespace(
                 __file__=str(module_file),
-                Pyannote=lambda *_args, **_kwargs: events.append(
-                    os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD")) or "vad")
+                Pyannote=lambda *_args, **kwargs: events.append(
+                    (os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD"), kwargs["vad_onset"])) or "vad")
             fake_vads = types.ModuleType("whisperx.vads")
             fake_vads.pyannote = fake_pyannote
             fake_whisperx = types.SimpleNamespace(
-                load_model=lambda *_args, **kwargs: kwargs["vad_model"])
+                load_model=lambda *_args, **kwargs: kwargs["vad_options"] is vad and kwargs["vad_model"])
             fake_torch = types.SimpleNamespace(device=lambda value: value)
             namespace = load_functions(
                 TRANSCRIBE, {"load_whisperx_with_verified_vad"}, {
@@ -216,12 +223,16 @@ class TranscriptionUtilityTests(unittest.TestCase):
                     "verify_file_sha256": self.ns["verify_file_sha256"],
                     "whisperx": fake_whisperx,
                     "torch": fake_torch,
+                    "logging": __import__("logging"),
                 })
             with mock.patch.dict(sys.modules, {"whisperx.vads": fake_vads}):
                 with mock.patch.dict(os.environ, {"TORCH_FORCE_WEIGHTS_ONLY_LOAD": "1"}):
-                    self.assertEqual(namespace["load_whisperx_with_verified_vad"]("large-v3", "cuda"), "vad")
+                    vad = {"chunk_size": 15, "vad_onset": 0.3, "vad_offset": 0.2}
+                    self.assertEqual(namespace["load_whisperx_with_verified_vad"](
+                        "large-v3", "cuda", vad), "vad")
                     self.assertEqual(os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"], "1")
-            self.assertEqual(events, [None])
+            # The same thresholds reach the VAD model and transcribe()'s chunk merging.
+            self.assertEqual(events, [(None, 0.3)])
 
     def test_atomic_checkpoint_round_trip_and_replace(self):
         dump = self.ns["atomic_json_dump"]
@@ -528,8 +539,8 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
              "merge_api_segments", "prepare_api_chunks",
              "format_timestamp", "collect_quality_notes", "transcribe_with_batch_backoff",
-             "is_cuda_out_of_memory"},
-            {"CJK_LANGUAGE_CODES": {"ja", "zh"},
+             "is_cuda_out_of_memory", "find_stretched_cues"},
+            {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "zlib": zlib,
              "MEDIA_EXTENSIONS": {".wav", ".mp3", ".mp4", ".m4a"},
              "free_vram": lambda: None},
         )
@@ -692,6 +703,20 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         with mock.patch("builtins.print"):
             _result, used = self.ns["transcribe_with_batch_backoff"](FakeModel(), "a", 3)
         self.assertEqual((attempted, used), ([3, 1], 1))
+
+    def test_quality_notes_catch_loops_without_reported_compression(self):
+        notes = self.ns["collect_quality_notes"]([
+            {"start": 0, "end": 30, "text": "ごし" * 80, "avg_logprob": -0.3},
+            {"start": 30, "end": 40, "text": "よしよしいい子だね、大丈夫だよ", "avg_logprob": -0.3}])
+        self.assertEqual([note["start"] for note in notes], [0])
+        self.assertIn("repetition", notes[0]["reasons"])
+
+    def test_stretched_cues_are_flagged(self):
+        notes = self.ns["find_stretched_cues"]([
+            {"start": 5.8, "end": 32.5, "text": "こんばんは"},
+            {"start": 40, "end": 48, "text": "ちょっと待って、一緒にやろうか。"},
+            {"start": 50, "end": 50.02, "text": "も"}])
+        self.assertEqual([note["start"] for note in notes], [5.8])
 
     def test_quality_notes_tolerate_missing_signals(self):
         self.assertEqual(self.ns["collect_quality_notes"](
