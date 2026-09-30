@@ -110,9 +110,9 @@ class NotebookStructureTests(unittest.TestCase):
         self.assertIn('quality_mode = "Balanced"', TRANSCRIBE)
         self.assertIn('"High accuracy"', TRANSCRIBE)
         self.assertIn('quality["beam_size"]', TRANSCRIBE)
-        self.assertIn('quality["best_of"]', TRANSCRIBE)
-        self.assertIn('"condition_on_previous_text": context_conditioning', TRANSCRIBE)
-        self.assertIn("context_conditioning", TRANSCRIBE)
+        # Options the batched WhisperX decoder ignores must not pose as settings.
+        self.assertNotIn("context_conditioning", TRANSCRIBE)
+        self.assertNotIn("best_of", TRANSCRIBE)
         self.assertIn("effective_prompt", TRANSCRIBE)
         self.assertIn("collect_quality_notes", TRANSCRIBE)
         self.assertIn("quality_notes", TRANSCRIBE)

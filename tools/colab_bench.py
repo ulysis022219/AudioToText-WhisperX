@@ -53,7 +53,6 @@ PRESETS = {
         ("large-v3", {}),
         ("quiet", {"quiet_speech": True}),
         ("no-repeat", {"reduce_repetition": True}),
-        ("context", {"context_conditioning": True}),
         ("high-acc", {"quality_mode": "High accuracy"}),
     ],
 }
