@@ -129,6 +129,7 @@ class NotebookStructureTests(unittest.TestCase):
         # Kotoba-based models learned from short clips; their authors run them on 15 s chunks.
         self.assertIn('"chunk_size": 15 if quiet_speech or kotoba_based else 30', TRANSCRIBE)
         self.assertIn('segment["end"] = min(segment["end"], round(audio_seconds, 3))', TRANSCRIBE)
+        self.assertIn('if re.search(r"\\w", segment.get("text", ""))]', TRANSCRIBE)  # drop "…"-only segments
         self.assertIn('"anime-whisper"]', TRANSCRIBE)
         self.assertLess(TRANSCRIBE.index('use_model = ensure_anime_whisper()'),
                         TRANSCRIBE.index("model_name = use_model"))
@@ -149,7 +150,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes", "STOCK_HALLUCINATIONS", "pad_vad_chunks",
+             "collect_quality_notes", "STOCK_HALLUCINATIONS", "pad_vad_chunks", "split_vad_chunks_at_pauses",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
@@ -218,7 +219,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
                 events.append((os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD"), kwargs["vad_onset"]))
                 return vad_model
             fake_vad.merge_chunks = lambda _scores, chunk_size, _onset, _offset: [
-                {"start": 1.0, "end": 1.0 + chunk_size}]
+                {"start": 1.0, "end": 1.0 + chunk_size, "segments": [(1.0, 10.0), (13.0, 1.0 + chunk_size)]}]
             fake_pyannote = types.SimpleNamespace(__file__=str(module_file), Pyannote=fake_vad)
             fake_vads = types.ModuleType("whisperx.vads")
             fake_vads.pyannote = fake_pyannote
@@ -226,7 +227,7 @@ class TranscriptionUtilityTests(unittest.TestCase):
                 load_model=lambda *_args, **kwargs: kwargs["vad_options"] is vad and kwargs["vad_model"])
             fake_torch = types.SimpleNamespace(device=lambda value: value)
             namespace = load_functions(
-                TRANSCRIBE, {"load_whisperx_with_verified_vad", "pad_vad_chunks"}, {
+                TRANSCRIBE, {"load_whisperx_with_verified_vad", "pad_vad_chunks", "split_vad_chunks_at_pauses"}, {
                     "WHISPERX_VAD_SHA256": __import__("hashlib").sha256(b"trusted").hexdigest(),
                     "verify_file_sha256": self.ns["verify_file_sha256"],
                     "whisperx": fake_whisperx,
@@ -243,9 +244,20 @@ class TranscriptionUtilityTests(unittest.TestCase):
                     self.assertEqual(os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"], "1")
             # The same thresholds reach the VAD model and transcribe()'s chunk merging.
             self.assertEqual(events, [(None, 0.3)])
-            # Chunks are merged 1 s shorter, then padded, so they still fit the 30 s window.
+            # Chunks are merged 1 s shorter, split at long pauses, then padded, so they still fit the 30 s window.
             self.assertEqual(vad_model.merge_chunks("scores", 30, onset=0.3, offset=0.2),
-                             [{"start": 0.6, "end": 30.4}])
+                             [{"start": 0.6, "end": 10.4, "segments": [(1.0, 10.0)]},
+                              {"start": 12.6, "end": 30.4, "segments": [(13.0, 30.0)]}])
+
+    def test_vad_chunks_split_at_long_pauses_only(self):
+        split = self.ns["split_vad_chunks_at_pauses"]([
+            {"start": 0.0, "end": 9.0, "segments": [(0.0, 2.0), (3.0, 5.0), (8.0, 9.0)]},
+            {"start": 12.0, "end": 14.0, "segments": [(12.0, 14.0)]}])
+        self.assertEqual([(chunk["start"], chunk["end"]) for chunk in split], [(0.0, 5.0), (8.0, 9.0), (12.0, 14.0)])
+        # A click inside a pause neither blocks the split nor becomes a chunk of its own.
+        split = self.ns["split_vad_chunks_at_pauses"]([
+            {"start": 0.0, "end": 9.0, "segments": [(0.0, 2.0), (3.5, 3.55), (6.0, 7.0), (8.0, 8.05)]}])
+        self.assertEqual([chunk["segments"] for chunk in split], [[(0.0, 2.0)], [(6.0, 7.0)]])
 
     def test_vad_chunks_are_padded_into_silence_only(self):
         chunks = [{"start": 0.1, "end": 5.0}, {"start": 5.3, "end": 9.0},
@@ -784,8 +796,12 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         notes = self.ns["collect_quality_notes"]([
             {"start": 0, "end": 2, "text": "ご視聴ありがとうございました"},
             {"start": 2, "end": 4, "text": "Thank you for watching!"},
-            {"start": 4, "end": 6, "text": "ありがとう"}])
-        self.assertEqual([note["start"] for note in notes], [0, 2])
+            {"start": 4, "end": 6, "text": "ありがとう"},
+            {"start": 6, "end": 8, "text": "最後までご視聴いただきありがとうございました。"},
+            {"start": 8, "end": 10, "text": "ご覧いただきありがとうございました"},
+            {"start": 10, "end": 12, "text": "字幕由Amara.org社区提供"},
+            {"start": 12, "end": 14, "text": "聞いてくれてありがとう。おやすみなさい"}])
+        self.assertEqual([note["start"] for note in notes], [0, 2, 6, 8, 10])
         self.assertIn("stock phrase", notes[0]["reasons"])
 
     def test_quality_notes_tolerate_missing_signals(self):
