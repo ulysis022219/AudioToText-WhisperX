@@ -751,6 +751,9 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"start": 566.4, "end": 566.9, "text": "ここは?すりすりすり…ここは?"},  # 15 chars in 0.5 s
             {"start": 567.0, "end": 567.2, "text": "ちゅ"}])
         self.assertEqual([segment["start"] for segment in segments], [543.9, 565.025, 567.0])
+        overlapping = self.ns["widen_crammed_cues"]([
+            {"start": 0, "end": 2, "text": "あ"}, {"start": 1.9, "end": 2.1, "text": "ここは?すりすり"}])
+        self.assertEqual(overlapping[1]["start"], 1.9)  # never moved later
 
     def test_runaway_repeats_are_collapsed(self):
         segments = self.ns["collapse_repeats"]([
