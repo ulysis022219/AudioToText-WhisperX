@@ -64,7 +64,7 @@ class NotebookStructureTests(unittest.TestCase):
         for requirement in (
             '"torch": "2.8.0+cu128"', '"whisperx": "3.8.6"',
             '"openai": "3.6.0"', '"deepl": "1.32.0"',
-            '"numpy": "2.5.2"', '"ctranslate2": "4.8.1"',
+            '"numpy": "2.5.2"', '"ctranslate2": "4.8.2"',
             '"torchcodec": "0.7.0+cu128"',
         ):
             self.assertIn(requirement, INSTALL)
