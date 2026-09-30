@@ -75,7 +75,7 @@
 |---|---|---|
 | `output_dir` | `MyDrive/audio_transcription` | Where the files are written |
 | `output_formats` | `srt` | Any comma-separated mix of `txt, vtt, srt, tsv, json` |
-| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) |
+| `cleanup_repetitions` | off | Collapses repetition loops (e.g. a phrase hallucinated over silence) to one copy and drops a cue that repeats one of the two before it. Short sounds keep three copies (`ははは`, `ちゅっちゅっちゅっ`) |
 | `save_raw_json` | on | Also writes an uncleaned `.raw.json` with word-level data |
 | `overwrite_existing` | off | When off, a new run gets a `-1`, `-2`, … suffix instead of replacing old files |
 

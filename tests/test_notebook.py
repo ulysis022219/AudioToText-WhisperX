@@ -398,7 +398,7 @@ class OutputUtilityTests(unittest.TestCase):
             {"start": 3, "end": 4, "text": "次の台詞"},
         ]
         cleaned = self.ns["clean_segments"](segments)
-        self.assertEqual([segment["text"] for segment in cleaned], ["おいしぃ", "次の台詞"])
+        self.assertEqual([segment["text"] for segment in cleaned], ["おいしぃぃぃ", "次の台詞"])
         self.assertEqual(segments[1]["text"], "ぃ" * 20)
 
     def test_short_drawl_and_replacement_character_are_preserved(self):
@@ -409,7 +409,7 @@ class OutputUtilityTests(unittest.TestCase):
         ]
         cleaned = self.ns["clean_segments"](segments)
         self.assertEqual(
-            [segment["text"] for segment in cleaned], ["ありがとお", "お", "さ�みつ"])
+            [segment["text"] for segment in cleaned], ["ありがとお", "おおお", "さ�みつ"])
 
     def test_raw_json_is_written_before_words_are_removed(self):
         json_branch = OUTPUT.index('if output_format == "json":')
@@ -899,6 +899,13 @@ class OutputEdgeCaseTests(unittest.TestCase):
     def test_repetition_cleanup_collapses_loops_but_keeps_normal_text(self):
         clean = self.ns["clean_repeated_words"]
         self.assertEqual(clean("no no no no no way"), "no way")
+        # Short sounds keep three copies; loops of phrases or punctuation collapse to one.
+        self.assertEqual(clean("あはははははは"), "あははは")
+        self.assertEqual(clean("ちゅっちゅっちゅっちゅっちゅっ"), "ちゅっちゅっちゅっ")
+        self.assertEqual(clean("hahahahaha"), "hahaha")
+        self.assertEqual(clean("あ、あ、あ、あ、あ、"), "あ、")
+        self.assertEqual(clean("…………"), "…")
+        self.assertEqual(clean("ありがとうございます。" * 3), "ありがとうございます。")
         self.assertEqual(clean("I said no, no."), "I said no, no.")
         self.assertEqual(clean(""), "")
 
