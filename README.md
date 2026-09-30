@@ -120,7 +120,7 @@ For each input, the JSON output also records the alignment status, the alignment
 | Problem | Fix |
 |---|---|
 | Runtime restarted after Step 1 | Expected. Continue with Step 2 |
-| Environment verification failed | Delete `/tmp/deps_installed_v3` and rerun Step 1 |
+| Environment verification failed | Delete `/tmp/deps_installed_v4` and rerun Step 1 |
 | CUDA out of memory | Handled automatically. If it still fails at `batch_size=1`, restart the runtime and use `int8` or a smaller model |
 | `cudaErrorInvalidDevice` | Restart the runtime (or switch the GPU type), then rerun from Step 1 |
 | Transcript is in the wrong language | Set `language` to the spoken language (the default is Japanese) |
