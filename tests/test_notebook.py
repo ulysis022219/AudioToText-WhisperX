@@ -64,10 +64,16 @@ class NotebookStructureTests(unittest.TestCase):
             '"torchcodec": "0.7.0+cu128"',
         ):
             self.assertIn(requirement, INSTALL)
-        for removed in ("cohere", "tensorflow-probability", "requests==", "ffmpeg-python", "pydub"):
+        for removed in ("cohere", "tensorflow-probability", "requests==", "ffmpeg-python", "pydub",
+                        "openai-whisper"):
             self.assertNotIn(removed, INSTALL)
         self.assertIn('["ffmpeg", "-version"]', INSTALL)
         self.assertIn("verify_environment()", INSTALL)
+        # A single uv resolve installs exactly the verified pins.
+        self.assertIn('f"{name}=={pinned}" for name, pinned in EXPECTED.items()', INSTALL)
+        self.assertEqual(INSTALL.count("uv + ["), 1)
+        for source in (TRANSCRIBE, OUTPUT, DEEPL):
+            self.assertNotRegex(source, r"(from|import) whisper(\.| |$)")
 
     def test_credentials_and_model_loading_are_safe(self):
         self.assertIn('userdata.get("OPENAI_API_KEY")', TRANSCRIBE)
@@ -655,7 +661,7 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
 
 
 class FakeWhisperWriter:
-    """Mirrors whisper.utils.ResultWriter naming: basename minus the last extension."""
+    """Mirrors whisperx.utils.ResultWriter naming: basename minus the last extension."""
 
     def __init__(self, extension, output_dir):
         self.extension, self.output_dir = extension, output_dir
@@ -816,10 +822,10 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertFalse(valid("nope", source))
 
     def test_source_codes_accept_whisper_codes_and_names(self):
-        fake_tokenizer = types.ModuleType("whisper.tokenizer")
-        fake_tokenizer.TO_LANGUAGE_CODE = {"japanese": "ja", "norwegian": "no"}
-        with mock.patch.dict(sys.modules, {"whisper": types.ModuleType("whisper"),
-                                           "whisper.tokenizer": fake_tokenizer}):
+        fake_utils = types.ModuleType("whisperx.utils")
+        fake_utils.TO_LANGUAGE_CODE = {"japanese": "ja", "norwegian": "no"}
+        with mock.patch.dict(sys.modules, {"whisperx": types.ModuleType("whisperx"),
+                                           "whisperx.utils": fake_utils}):
             code = self.ns["deepl_source_code"]
             self.assertEqual(code("ja"), "JA")
             self.assertEqual(code("japanese"), "JA")
