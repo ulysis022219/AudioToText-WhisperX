@@ -88,7 +88,7 @@
 | `share_context` | on | Sends neighbouring lines as context for better coherence |
 | `deepl_instructions` | subtitle style hint | Free-text style hint (DeepL custom instructions) for EN/DE/ES/FR/IT/JA/KO/ZH targets; skipped automatically if your plan rejects it. Clear it to turn off |
 
-Step 5 rejoins Step 3's short display fragments into whole sentences before translating them (a sentence shorter than 1.5 s is joined to the next, so crammed moments don't flash by), uses DeepL's quality-optimized model where available, and splits the translation back into subtitles of at most two 42-character lines, keeping sentences together. Brief cues stay on screen for at least 1 s (≈15 chars/s) when the next cue allows it, and walls of repeats (`slurp-slurp-slurp-…`) are shortened. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
+Step 5 rejoins Step 3's short display fragments into whole sentences before translating them (a sentence shorter than 1.5 s is joined to the next, so crammed moments don't flash by), uses DeepL's quality-optimized model where available, and splits the translation back into subtitles of at most two 42-character lines, keeping sentences together and the two lines about even, so no word is left alone on the second line. Brief cues stay on screen for at least 1 s (≈15 chars/s) when the next cue allows it, and walls of repeats (`slurp-slurp-slurp-…`) are shortened. Progress is checkpointed after every batch, so an interrupted run resumes where it stopped.
 
 ## 🔐 Secrets
 
