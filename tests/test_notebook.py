@@ -64,7 +64,7 @@ class NotebookStructureTests(unittest.TestCase):
         for requirement in (
             '"torch": "2.8.0+cu128"', '"whisperx": "3.8.6"',
             '"openai": "3.6.0"', '"deepl": "1.32.0"',
-            '"numpy": "2.5.2"', '"ctranslate2": "4.8.1"',
+            '"numpy": "2.5.2"', '"ctranslate2": "4.8.2"',
             '"torchcodec": "0.7.0+cu128"',
         ):
             self.assertIn(requirement, INSTALL)
@@ -152,7 +152,8 @@ class TranscriptionUtilityTests(unittest.TestCase):
             TRANSCRIBE,
             {"verify_file_sha256", "atomic_json_dump", "join_word_texts",
              "split_long_segments", "merge_api_segments", "prepare_api_chunks",
-             "collect_quality_notes", "STOCK_HALLUCINATIONS", "pad_vad_chunks", "split_vad_chunks_at_pauses",
+             "collect_quality_notes", "compression_ratio", "STOCK_HALLUCINATIONS", "pad_vad_chunks",
+             "split_vad_chunks_at_pauses",
              "is_cuda_out_of_memory", "transcribe_with_batch_backoff"},
             {"CJK_LANGUAGE_CODES": {"ja", "zh"}, "free_vram": lambda: None, "zlib": zlib},
         )
@@ -604,7 +605,8 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             TRANSCRIBE,
             {"resolve_audio_inputs", "join_word_texts", "split_long_segments",
              "merge_api_segments", "prepare_api_chunks",
-             "format_timestamp", "collect_quality_notes", "STOCK_HALLUCINATIONS",
+             "format_timestamp", "collect_quality_notes", "compression_ratio", "redecode_loops",
+             "STOCK_HALLUCINATIONS",
              "transcribe_with_batch_backoff",
              "is_cuda_out_of_memory", "find_timing_issues",
              "ease_short_cues", "collapse_repeats", "trim_smeared_words", "widen_crammed_cues"},
@@ -778,6 +780,36 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
             {"start": 30, "end": 40, "text": "よしよしいい子だね、大丈夫だよ", "avg_logprob": -0.3}])
         self.assertEqual([note["start"] for note in notes], [0])
         self.assertIn("repetition", notes[0]["reasons"])
+
+    def test_looping_chunks_are_redecoded_at_a_higher_temperature(self):
+        calls = []
+
+        class Whisper:
+            def transcribe(self, clip, **options):
+                calls.append(options)
+                if clip[0] == 4:
+                    raise RuntimeError("CUDA failed")
+                text = {0: "今日は一緒に寝ようね。おやすみ", 1: "おやすみ" * 30, 2: ""}[clip[0]]
+                return iter([types.SimpleNamespace(text=text, avg_logprob=-0.4)] if text else []), None
+
+        audio = [0] * 1000 + [1] * 1000 + [2] * 1000 + [3] * 1000 + [4] * 1000  # 1/16 s each at 16 kHz
+        segments = [{"start": 0.0, "end": 0.0625, "text": "今日は" + "寝よう" * 60, "avg_logprob": -0.1},
+                    {"start": 0.0625, "end": 0.125, "text": "おやすみ" * 40, "avg_logprob": -0.1},
+                    {"start": 0.125, "end": 0.1875, "text": "よしよし" * 30, "avg_logprob": -0.1},
+                    {"start": 0.1875, "end": 0.25, "text": "よしよし、いい子だね", "avg_logprob": -0.1},
+                    {"start": 0.25, "end": 0.3125, "text": "ちゅっ" * 30, "avg_logprob": -0.1}]
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            redone = self.ns["redecode_loops"](Whisper(), segments, audio, language="ja", task="transcribe")
+        # Only the four loops are decoded again; one that still loops, comes back empty or fails stays as it was.
+        self.assertEqual((redone, len(calls)), (1, 4))
+        self.assertEqual([segment["text"] for segment in segments],
+                         ["今日は一緒に寝ようね。おやすみ", "おやすみ" * 40, "よしよし" * 30, "よしよし、いい子だね",
+                          "ちゅっ" * 30])
+        self.assertIn("CUDA failed", output.getvalue())
+        self.assertEqual((segments[0]["avg_logprob"], segments[0].get("redecoded")), (-0.4, True))
+        self.assertEqual((calls[0]["temperature"], calls[0]["log_prob_threshold"], calls[0]["language"]),
+                         ([0.2, 0.4, 0.6], None, "ja"))
+        self.assertIn("re-decoded", self.ns["collect_quality_notes"](segments)[0]["reasons"])
 
     def test_timing_issues_are_flagged(self):
         notes = self.ns["find_timing_issues"]([
