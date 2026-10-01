@@ -190,7 +190,7 @@ def score_result(result, audio_seconds=None, reference=None, max_chars=20):
         "chars": len(normalize_for_cer(joined)),
         "notes": notes,
         "alignment": result.get("alignment_status"),
-        "long_lines": sum(1 for text in texts if len(text) > max_chars),
+        "long_lines": sum(1 for text in texts if len(text) > max_chars + max_chars // 4),  # Step 3 overflow
         "long_cues": sum(1 for duration in durations if duration > 7.0),
         "short_cues": sum(1 for duration in durations if duration < 0.3),
         "overlaps": overlaps,
