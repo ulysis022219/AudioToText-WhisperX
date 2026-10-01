@@ -1065,6 +1065,13 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         self.assertEqual(split("x" * 42, max_len=42), "x" * 42)
         self.assertEqual(split("", max_len=42), "")
 
+    def test_display_lines_are_balanced_without_orphans(self):
+        split = self.ns["split_display_lines"]
+        self.assertEqual(split("Everyone’s a cat… but there are cats here, too"),
+                         "Everyone’s a cat… but\nthere are cats here, too")
+        self.assertEqual(split("You don’t realize how serious this is, do you?"),
+                         "You don’t realize how\nserious this is, do you?")
+
     def test_translated_walls_of_repeats_are_shortened(self):
         collapse = self.ns["collapse_translation_repeats"]
         self.assertEqual(collapse("Mmm, slurp-slurp-slurp-slurp-slurp-slurp"), "Mmm, slurp-slurp-slurp…")
@@ -1084,7 +1091,7 @@ class DeepLEdgeCaseTests(unittest.TestCase):
         cues = self.ns["subtitle_segments"]([{"id": 0, "start": 0, "end": 4, "text":
             "What about here? Rub, rub, rub... What about here? Here? Everything's so sensitive."}])
         self.assertEqual([cue["text"] for cue in cues],
-                         ["What about here? Rub, rub, rub... What\nabout here? Here?",
+                         ["What about here? Rub, rub,\nrub... What about here? Here?",
                           "Everything's so sensitive."])
         cues = self.ns["subtitle_segments"]([{"id": 0, "start": 0, "end": 4, "text":
             "I missed you so much\nCome here. Let me hold you."}])
