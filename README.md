@@ -61,7 +61,7 @@
 | `batch_size` | `8` | Halved automatically on CUDA out-of-memory, down to `1` |
 | `word_timestamps` | on | Forced alignment for word-level timing |
 | `fail_if_alignment_fails` | off | Stop instead of saving output marked as degraded |
-| `max_chars_per_line` | `20` | Subtitle line length for Japanese/Chinese |
+| `max_chars_per_line` | `20` | Subtitle line length for Japanese/Chinese. Lines are cut only between words (after punctuation, or where kana gives way to kanji or katakana), never inside a drawled word (`お姉…さん`) or one a chunk boundary split (`大好|き`). A line may run 25% longer to reach a break |
 
 > [!TIP]
 > **Japanese ASMR / voice drama:** use `anime-whisper` with `quiet_speech` and `reduce_repetition` on, then `cleanup_repetitions` in Step 4. Try `large-v3` on the same settings if a file has long stretches with no text.

@@ -691,6 +691,31 @@ class TranscriptionEdgeCaseTests(unittest.TestCase):
         text = "あいうえおかきくけこさしすせそたちつてとなに"
         self.assertEqual([item["text"] for item in split([self._chars(text)], 20, "ja")], [text])
 
+    def test_cjk_split_never_cuts_inside_a_word(self):
+        # From a real ASMR run: drawled words and chunk boundaries cut mid-word.
+        split = self.ns["split_long_segments"]
+        lines = lambda *segments: [item["text"] for item in split(list(segments), 20, "ja")]
+        self.assertEqual(lines(self._chars("んしょ…それでは、今月もありがとうございましたー…")),
+                         ["んしょ…それでは、今月もありがとうございましたー…"])
+        self.assertEqual(lines(self._chars("お礼は、またバスタートーク枠に移動しますね。来月もよろしくー", {18: 0.66})),
+                         ["お礼は、またバスタートーク枠に", "移動しますね。来月もよろしくー"])
+        self.assertEqual(lines(self._chars("…って、なんかセクシーなお姉さんがいて…なんもわかんないまま…", {14: 1.4})),
+                         ["…って、なんかセクシーなお姉さんがいて…", "なんもわかんないまま…"])
+        first = self._chars("大好")
+        second = self._chars("き…はぁ…びしょびしょになっちゃう…もう、")
+        for word in second["words"]:
+            word["start"] += first["end"] + 0.14
+            word["end"] += first["end"] + 0.14
+        result = split([first, second], 20, "ja")
+        self.assertEqual([item["text"] for item in result], ["大好き…", "はぁ…びしょびしょになっちゃう…もう、"])
+        self.assertEqual(result[0]["end"], second["words"][1]["end"])
+        self.assertEqual(result[1]["start"], second["words"][2]["start"])
+        for word in second["words"]:  # after a real pause it stays as said
+            word["start"] += 3.0
+            word["end"] += 3.0
+        self.assertEqual(len(split([first, second], 20, "ja")), 2)
+        self.assertEqual(split([first, second], 20, "ja")[0]["text"], "大好")
+
     def test_cjk_split_without_any_timed_word_is_untouched(self):
         split = self.ns["split_long_segments"]
         segment = {"start": 0, "end": 1, "text": "１２３", "words": [{"word": "１２３"}]}
