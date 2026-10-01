@@ -55,7 +55,7 @@ class ColabBenchTests(unittest.TestCase):
             "segments": [
                 {"start": 0.0, "end": 1.0, "text": "はい"},
                 {"start": 1.0, "end": 2.0, "text": "はい"},
-                {"start": 1.5, "end": 12.0, "text": "あ" * 25},
+                {"start": 1.5, "end": 12.0, "text": "あ" * 26},
                 {"start": 12.0, "end": 12.1, "text": "え"},
             ],
             "quality_notes": [
@@ -68,8 +68,8 @@ class ColabBenchTests(unittest.TestCase):
         self.assertEqual(metrics["same_line_run"], 2)
         self.assertEqual((metrics["long_lines"], metrics["long_cues"], metrics["short_cues"]), (1, 1, 1))
         self.assertEqual(metrics["overlaps"], 1)
-        self.assertEqual(metrics["chars"], 30)
-        self.assertEqual(metrics["chars_per_min"], 30.0)
+        self.assertEqual(metrics["chars"], 31)
+        self.assertEqual(metrics["chars_per_min"], 31.0)
         self.assertGreater(metrics["cer"], 1)
 
     def test_excerpt_name(self):

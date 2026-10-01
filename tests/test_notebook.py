@@ -448,7 +448,7 @@ class DeepLTests(unittest.TestCase):
         self.assertIn("if share_context else None", DEEPL)
         self.assertIn("len(responses) != len(batch)", DEEPL)
         self.assertIn("valid_resume_prefix", DEEPL)
-        self.assertIn("source_signature", DEEPL)
+        self.assertIn("source_signatures[audio_path]", DEEPL)
         self.assertIn("atomic_deepl_checkpoint", DEEPL)
         self.assertIn('"translation_status": "in_progress"', DEEPL)
         self.assertIn('translated["translation_status"] = "complete"', DEEPL)
@@ -508,9 +508,43 @@ class DeepLTests(unittest.TestCase):
         # silently kept on re-run.
         self.assertIn("TRANSLATION_VERSION", DEEPL)
         self.assertIn('"version": TRANSLATION_VERSION', DEEPL)
-        self.assertIn('"translation_version": TRANSLATION_VERSION', DEEPL)
-        self.assertIn(
-            'saved_translation.get("translation_version") == TRANSLATION_VERSION', DEEPL)
+        self.assertLess(DEEPL.index('"version": TRANSLATION_VERSION'),
+                        DEEPL.index("source_signatures = {"))
+
+    def test_translation_resumes_per_file(self):
+        calls = []
+        class Translator:
+            def __init__(self, key):
+                pass
+            def get_target_languages(self):
+                return [types.SimpleNamespace(name="English (American)", code="EN-US")]
+            def get_source_languages(self):
+                return [types.SimpleNamespace(code="JA")]
+            def translate_text(self, text, **options):
+                calls.extend(text)
+                return [types.SimpleNamespace(text=f"<{item}>") for item in text]
+
+        utils = types.SimpleNamespace(get_writer=FakeWhisperWriter, WriteTXT=object,
+                                      TO_LANGUAGE_CODE={})
+        deepl = types.SimpleNamespace(Translator=Translator, DeepLException=RuntimeError,
+                                      QuotaExceededException=KeyError, AuthorizationException=KeyError)
+        colab = types.SimpleNamespace(userdata=types.SimpleNamespace(get=lambda name: "key"))
+        def result(text):
+            return {"language": "ja", "text": text,
+                    "segments": [{"id": 0, "start": 1.0, "end": 2.0, "text": text}]}
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(sys.modules, {
+                "whisperx": types.ModuleType("whisperx"), "whisperx.utils": utils, "deepl": deepl,
+                "google": types.ModuleType("google"), "google.colab": colab}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            for inputs in ({"/in/a.wav": result("おはよう")},
+                           {"/in/a.wav": result("おはよう"), "/in/b.wav": result("おやすみ")}):
+                namespace = {"task": "transcribe", "results": inputs}
+                for cell in (OUTPUT, DEEPL):
+                    exec(cell.replace('"/content/drive/MyDrive/audio_transcription"', repr(directory)),
+                         namespace)
+            names = sorted(path.name for path in Path(directory).glob("*-en-us*.srt"))
+        self.assertEqual(calls, ["おはよう", "おやすみ"])  # a.wav is not sent twice
+        self.assertEqual(names, ["a-en-us-1.srt", "a-en-us.srt", "b-en-us.srt"])
 
 
 class DeepLTranslationUtilityTests(unittest.TestCase):
